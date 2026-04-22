@@ -1,0 +1,905 @@
+-------------------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  D:\Microsoft VS Code\exP03_冯晓怡\output\logs\03_models_M1_M6_v4.log
+  log type:  text
+ opened on:  21 Apr 2026, 21:15:32
+
+. 
+. *----------------------------*
+. * 1. 必要命令检查
+. *----------------------------*
+. cap which ftools
+
+. if _rc cap noi ssc install ftools, replace
+
+. 
+. cap which reghdfe
+
+. if _rc cap noi ssc install reghdfe, replace
+
+. 
+. cap which esttab
+
+. if _rc cap noi ssc install estout, replace
+
+. 
+. cap which reghdfe
+
+. if _rc {
+.     di as error "reghdfe 未成功安装，脚本终止。"
+.     exit 499
+. }
+
+. 
+. * 可选命令：regife
+. cap which regife
+
+. if _rc cap noi ssc install regife, replace
+
+. cap which regife
+
+. if _rc cap noi net install regife, from("https://raw.githubusercontent.com/matthieugomez/regife/main/") replace
+
+. 
+. * 可选命令：xthreg
+. cap which xthreg
+
+. local has_xthreg = cond(_rc==0, 1, 0)
+
+. 
+. *----------------------------*
+. * 2. 读入清洗样本
+. *----------------------------*
+. use "$clean\panel_clean_for_analysis.dta", clear
+
+. sort firmid year
+
+. xtset firmid year
+
+Panel variable: firmid (unbalanced)
+ Time variable: year, 2011 to 2022, but with gaps
+         Delta: 1 unit
+
+. 
+. qui levelsof year, local(years)
+
+. local minyear : word 1 of `years'
+
+. local maxyear : word `: word count `years'' of `years'
+
+. local nyear   : word count `years'
+
+. 
+. egen tagfirm = tag(firmid)
+
+. qui count if tagfirm
+
+. local nfirm = r(N)
+
+. drop tagfirm
+
+. 
+. di as result ">>> clean sample loaded"
+>>> clean sample loaded
+
+. di as result "Years: `minyear' - `maxyear'"
+Years: 2011 - 2022
+
+. di as result "Firms: `nfirm'"
+Firms: 3998
+
+. di as result "Obs: " _N
+Obs: 29301
+
+. 
+. cap estimates clear
+
+. 
+. tempfile keyres
+
+. tempname postkey
+
+. postfile `postkey' str20 model str35 item double b se t p using `keyres', replace
+(file C:\Users\Phyllis\AppData\Local\Temp\ST_10e8_000001.tmp not found)
+
+. 
+. *====================================================*
+. * M1：双向固定效应基准模型
+. *====================================================*
+. local has_m1p_model = 0
+
+. 
+. di as text ">>> Running M1: TWFE baseline"
+>>> Running M1: TWFE baseline
+
+. 
+. qui reghdfe lev npr size tang growth ndts, ///
+>     absorb(firmid year) ///
+>     vce(cluster firmid year)
+
+. 
+. estimates store M1
+
+. estadd scalar Firms = `nfirm'
+
+added scalar:
+              e(Firms) =  3998
+
+. estadd scalar R2_within = e(r2_within)
+
+added scalar:
+          e(R2_within) =  .1879516
+
+. 
+. local b  = _b[npr]
+
+. local se = _se[npr]
+
+. local t  = `b'/`se'
+
+. local p  = 2*normal(-abs(`t'))
+
+. post `postkey' ("M1") ("NPR effect") (`b') (`se') (`t') (`p')
+
+. 
+. *====================================================*
+. * M1'：IFE 稳健性检验（若 regife 可用）
+. *====================================================*
+. local has_regife = 1
+
+. cap which regife
+
+. if _rc local has_regife = 0
+
+. 
+. if `has_regife' == 1 {
+.     di as text ">>> Running M1': IFE model with regife"
+>>> Running M1': IFE model with regife
+. 
+.     capture noisily regife lev npr m2_growth size tang growth ndts, ///
+>         ife(firmid year, 2) ///
+>         absorb(firmid) ///
+>         vce(cluster firmid)
+hdfe.ado required when using multiple absorb variables: ssc install hdfe
+. 
+.     if _rc == 0 {
+.         estimates store M1p
+.         local has_m1p_model = 1
+.         capture confirm number _b[npr]
+.         if !_rc {
+.             local b  = _b[npr]
+.             local se = _se[npr]
+.             local t  = `b'/`se'
+.             local p  = 2*normal(-abs(`t'))
+.             post `postkey' ("M1p") ("NPR effect") (`b') (`se') (`t') (`p')
+.         }
+. 
+.         capture confirm scalar e(r2)
+.         if !_rc estadd scalar R2_within = e(r2)
+.         estadd scalar Firms = `nfirm'
+.     }
+.     else {
+.         di as text ">>> regife 已安装，但当前 M1' 运行失败，已跳过。"
+>>> regife 已安装，但当前 M1' 运行失败，已跳过。
+.     }
+. }
+
+. else {
+.     di as text ">>> 未检测到 regife，已跳过 M1'。"
+. }
+
+. 
+. *====================================================*
+. * M2：按 SOE 分组回归
+. *====================================================*
+. di as text ">>> Running M2: split sample by ownership"
+>>> Running M2: split sample by ownership
+
+. 
+. qui reghdfe lev npr size tang growth ndts if soe == 1, ///
+>     absorb(firmid year) ///
+>     vce(cluster firmid year)
+
+. estimates store M2_SOE
+
+. 
+. egen tagfirm = tag(firmid) if e(sample)
+
+. qui count if tagfirm
+
+. local nfirm_soe = r(N)
+
+. drop tagfirm
+
+. 
+. estadd scalar Firms = `nfirm_soe'
+
+added scalar:
+              e(Firms) =  1098
+
+. estadd scalar R2_within = e(r2_within)
+
+added scalar:
+          e(R2_within) =  .19925314
+
+. 
+. local b  = _b[npr]
+
+. local se = _se[npr]
+
+. local t  = `b'/`se'
+
+. local p  = 2*normal(-abs(`t'))
+
+. post `postkey' ("M2_SOE") ("NPR effect") (`b') (`se') (`t') (`p')
+
+. 
+. qui reghdfe lev npr size tang growth ndts if soe == 0, ///
+>     absorb(firmid year) ///
+>     vce(cluster firmid year)
+
+. estimates store M2_NonSOE
+
+. 
+. egen tagfirm = tag(firmid) if e(sample)
+
+. qui count if tagfirm
+
+. local nfirm_nonsoe = r(N)
+
+. drop tagfirm
+
+. 
+. estadd scalar Firms = `nfirm_nonsoe'
+
+added scalar:
+              e(Firms) =  2621
+
+. estadd scalar R2_within = e(r2_within)
+
+added scalar:
+          e(R2_within) =  .16783542
+
+. 
+. local b  = _b[npr]
+
+. local se = _se[npr]
+
+. local t  = `b'/`se'
+
+. local p  = 2*normal(-abs(`t'))
+
+. post `postkey' ("M2_NonSOE") ("NPR effect") (`b') (`se') (`t') (`p')
+
+. 
+. *====================================================*
+. * M3：产权性质调节效应（手工差异检验）
+. *====================================================*
+. di as text ">>> Running M3: interaction model c.npr##i.soe"
+>>> Running M3: interaction model c.npr##i.soe
+
+. 
+. qui reghdfe lev c.npr##i.soe size tang growth ndts, ///
+>     absorb(firmid year) ///
+>     vce(cluster firmid year)
+
+. 
+. estimates store M3
+
+. estadd scalar Firms = `nfirm'
+
+added scalar:
+              e(Firms) =  3998
+
+. estadd scalar R2_within = e(r2_within)
+
+added scalar:
+          e(R2_within) =  .19079424
+
+. 
+. matrix bM3 = e(b)
+
+. matrix VM3 = e(V)
+
+. 
+. local c_base = colnumb(bM3, "c.npr")
+
+. local c_int  = colnumb(bM3, "1.soe#c.npr")
+
+. 
+. * Non-SOE 的 NPR 斜率
+. scalar b_priv = _b[c.npr]
+
+. scalar se_priv = sqrt(max(el(VM3, `c_base', `c_base'), 0))
+
+. scalar t_priv = b_priv / se_priv
+
+. scalar p_priv = 2*normal(-abs(t_priv))
+
+. post `postkey' ("M3") ("NPR effect in NonSOE") (b_priv) (se_priv) (t_priv) (p_priv)
+
+. 
+. * SOE 的 NPR 斜率 = c.npr + 1.soe#c.npr
+. scalar b_soe = _b[c.npr] + _b[1.soe#c.npr]
+
+. scalar v_soe = el(VM3, `c_base', `c_base') + el(VM3, `c_int', `c_int') + 2*el(VM3, `c_base', `c_int')
+
+. scalar se_soe = sqrt(max(v_soe, 0))
+
+. scalar t_soe = b_soe / se_soe
+
+. scalar p_soe = 2*normal(-abs(t_soe))
+
+. post `postkey' ("M3") ("NPR effect in SOE") (b_soe) (se_soe) (t_soe) (p_soe)
+
+. 
+. * 交互项显著性 = 差异检验
+. scalar b_diff = _b[1.soe#c.npr]
+
+. scalar se_diff = sqrt(max(el(VM3, `c_int', `c_int'), 0))
+
+. scalar t_diff = b_diff / se_diff
+
+. scalar p_diff = 2*normal(-abs(t_diff))
+
+. post `postkey' ("M3") ("Diff test: interaction") (b_diff) (se_diff) (t_diff) (p_diff)
+
+. 
+. * 调节效应图（手工绘制）
+. qui su npr if e(sample), detail
+
+. local x_min = r(p10)
+
+. local x_max = r(p90)
+
+. 
+. qui su size if e(sample), meanonly
+
+. local m_size = r(mean)
+
+. qui su tang if e(sample), meanonly
+
+. local m_tang = r(mean)
+
+. qui su growth if e(sample), meanonly
+
+. local m_growth = r(mean)
+
+. qui su ndts if e(sample), meanonly
+
+. local m_ndts = r(mean)
+
+. 
+. preserve
+
+. clear
+
+. set obs 80
+Number of observations (_N) was 0, now 80.
+
+. gen npr = `x_min' + (`x_max' - `x_min') * (_n - 1) / 79
+
+. expand 2
+(80 observations created)
+
+. bys npr: gen soe = _n - 1
+
+. 
+. gen lev_hat = .
+(160 missing values generated)
+
+. scalar b0 = 0
+
+. capture scalar b0 = _b[_cons]
+
+. 
+. replace lev_hat = b0 ///
+>     + (_b[c.npr] + _b[1.soe#c.npr] * soe) * npr ///
+>     + _b[size]   * `m_size' ///
+>     + _b[tang]   * `m_tang' ///
+>     + _b[growth] * `m_growth' ///
+>     + _b[ndts]   * `m_ndts'
+(160 real changes made)
+
+. 
+. twoway ///
+>     (line lev_hat npr if soe == 0, sort lpattern(dash) lwidth(medthick)) ///
+>     (line lev_hat npr if soe == 1, sort lwidth(medthick)), ///
+>     title("Fig 4 Moderation Effect: NPR × SOE") ///
+>     xtitle("NPR") ytitle("Predicted Lev") ///
+>     legend(order(1 "Non-SOE" 2 "SOE")) ///
+>     name(fig4_m3, replace)
+
+. graph export "$fig\Fig4_M3_moderation_plot.png", replace width(2200)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\figures\Fig4_M3_moderation_plot.png saved as PNG format
+
+. restore
+
+. 
+. *====================================================*
+. * M4：时变系数模型（手工计算每年边际效应）
+. *====================================================*
+. di as text ">>> Running M4: time-varying coefficients"
+>>> Running M4: time-varying coefficients
+
+. 
+. qui reghdfe lev c.npr##ib`minyear'.year size tang growth ndts, ///
+>     absorb(firmid year) ///
+>     vce(cluster firmid year)
+
+. 
+. estimates store M4
+
+. estadd scalar Firms = `nfirm'
+
+added scalar:
+              e(Firms) =  3998
+
+. estadd scalar R2_within = e(r2_within)
+
+added scalar:
+          e(R2_within) =  .19384693
+
+. 
+. matrix bM4 = e(b)
+
+. matrix VM4 = e(V)
+
+. 
+. local c_npr = colnumb(bM4, "c.npr")
+
+. 
+. tempfile m4coef
+
+. tempname postm4
+
+. postfile `postm4' int year double b se ll ul p using `m4coef', replace
+(file C:\Users\Phyllis\AppData\Local\Temp\ST_10e8_000003.tmp not found)
+
+. 
+. foreach yy of local years {
+  2.     scalar beta_y = _b[c.npr]
+  3.     scalar var_y  = el(VM4, `c_npr', `c_npr')
+  4. 
+.     if `yy' != `minyear' {
+  5.         local cname = "`yy'.year#c.npr"
+  6.         local c_int_y = colnumb(bM4, "`cname'")
+  7.         if `c_int_y' < . {
+  8.             scalar beta_y = beta_y + _b[`yy'.year#c.npr]
+  9.             scalar var_y  = var_y + el(VM4, `c_int_y', `c_int_y') + 2*el(VM4, `c_npr', `c_int_y')
+ 10.         }
+ 11.     }
+ 12. 
+.     scalar se_y = sqrt(max(var_y, 0))
+ 13.     scalar z_y  = beta_y / se_y
+ 14.     scalar p_y  = 2*normal(-abs(z_y))
+ 15.     scalar ll_y = beta_y - invnormal(0.975) * se_y
+ 16.     scalar ul_y = beta_y + invnormal(0.975) * se_y
+ 17. 
+.     post `postm4' (`yy') (beta_y) (se_y) (ll_y) (ul_y) (p_y)
+ 18. }
+
+. postclose `postm4'
+
+. 
+. use `m4coef', clear
+
+. save "$tab\M4_yearly_npr_effects.dta", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M4_yearly_npr_effects.dta saved
+
+. export delimited using "$tab\M4_yearly_npr_effects.csv", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M4_yearly_npr_effects.csv saved
+
+. export excel using "$tab\M4_yearly_npr_effects.xlsx", firstrow(variables) replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M4_yearly_npr_effects.xlsx saved
+
+. 
+. twoway ///
+>     (rarea ll ul year, sort) ///
+>     (line b year, sort lwidth(medthick)), ///
+>     yline(0, lpattern(dash)) ///
+>     title("Fig 5 Time-varying NPR Effect") ///
+>     xtitle("Year") ytitle("Estimated beta_t") ///
+>     name(fig5_m4, replace)
+
+. graph export "$fig\Fig5_M4_time_varying_beta.png", replace width(2200)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\figures\Fig5_M4_time_varying_beta.png saved as PNG format
+
+. 
+. use "$clean\panel_clean_for_analysis.dta", clear
+
+. sort firmid year
+
+. xtset firmid year
+
+Panel variable: firmid (unbalanced)
+ Time variable: year, 2011 to 2022, but with gaps
+         Delta: 1 unit
+
+. 
+. *====================================================*
+. * M5：函数系数模型（方法一：多项式调节；手工 delta method）
+. *====================================================*
+. di as text ">>> Running M5: polynomial varying coefficient model"
+>>> Running M5: polynomial varying coefficient model
+
+. 
+. capture drop size2 npr_size npr_size2
+
+. gen size2     = size^2
+
+. gen npr_size  = npr * size
+
+. gen npr_size2 = npr * size2
+
+. 
+. qui reghdfe lev npr npr_size npr_size2 size tang growth ndts, ///
+>     absorb(firmid year) ///
+>     vce(cluster firmid year)
+
+. 
+. estimates store M5
+
+. estadd scalar Firms = `nfirm'
+
+added scalar:
+              e(Firms) =  3998
+
+. estadd scalar R2_within = e(r2_within)
+
+added scalar:
+          e(R2_within) =  .18996771
+
+. 
+. matrix bM5 = e(b)
+
+. matrix VM5 = e(V)
+
+. 
+. local c1 = colnumb(bM5, "npr")
+
+. local c2 = colnumb(bM5, "npr_size")
+
+. local c3 = colnumb(bM5, "npr_size2")
+
+. 
+. qui su size if e(sample), detail
+
+. local s_p10 = r(p10)
+
+. local s_p25 = r(p25)
+
+. local s_p50 = r(p50)
+
+. local s_p75 = r(p75)
+
+. local s_p90 = r(p90)
+
+. 
+. tempfile m5me
+
+. tempname postm5
+
+. postfile `postm5' double size_grid me se ll ul p using `m5me', replace
+(file C:\Users\Phyllis\AppData\Local\Temp\ST_10e8_000004.tmp not found)
+
+. 
+. forvalues i = 0/40 {
+  2.     local sg = `s_p10' + (`s_p90' - `s_p10') * `i' / 40
+  3. 
+.     scalar me_g = _b[npr] + (`sg')*_b[npr_size] + ((`sg')^2)*_b[npr_size2]
+  4. 
+.     scalar var_g = ///
+>         el(VM5, `c1', `c1') ///
+>         + ((`sg')^2)        * el(VM5, `c2', `c2') ///
+>         + (((`sg')^2)^2)    * el(VM5, `c3', `c3') ///
+>         + 2*(`sg')          * el(VM5, `c1', `c2') ///
+>         + 2*((`sg')^2)      * el(VM5, `c1', `c3') ///
+>         + 2*(`sg')*((`sg')^2) * el(VM5, `c2', `c3')
+  5. 
+.     scalar se_g = sqrt(max(var_g, 0))
+  6.     scalar z_g  = me_g / se_g
+  7.     scalar p_g  = 2*normal(-abs(z_g))
+  8.     scalar ll_g = me_g - invnormal(0.975) * se_g
+  9.     scalar ul_g = me_g + invnormal(0.975) * se_g
+ 10. 
+.     post `postm5' (`sg') (me_g) (se_g) (ll_g) (ul_g) (p_g)
+ 11. }
+
+. postclose `postm5'
+
+. 
+. use `m5me', clear
+
+. save "$tab\M5_size_varying_marginal_effect.dta", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M5_size_varying_marginal_effect.dta saved
+
+. export delimited using "$tab\M5_size_varying_marginal_effect.csv", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M5_size_varying_marginal_effect.csv saved
+
+. export excel using "$tab\M5_size_varying_marginal_effect.xlsx", firstrow(variables) replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M5_size_varying_marginal_effect.xlsx saved
+
+. 
+. twoway ///
+>     (rarea ll ul size_grid, sort) ///
+>     (line me size_grid, sort lwidth(medthick)), ///
+>     yline(0, lpattern(dash)) ///
+>     xline(`s_p10' `s_p25' `s_p50' `s_p75' `s_p90', lpattern(shortdash)) ///
+>     title("Fig 6 beta(Size): Marginal Effect of NPR") ///
+>     xtitle("Size") ytitle("dLev / dNPR") ///
+>     name(fig6_m5, replace)
+
+. graph export "$fig\Fig6_M5_beta_of_size.png", replace width(2200)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\figures\Fig6_M5_beta_of_size.png saved as PNG format
+
+. 
+. use "$clean\panel_clean_for_analysis.dta", clear
+
+. sort firmid year
+
+. xtset firmid year
+
+Panel variable: firmid (unbalanced)
+ Time variable: year, 2011 to 2022, but with gaps
+         Delta: 1 unit
+
+. 
+. 
+. *====================================================*
+. * M6：门槛模型（若 xthreg 可用）
+. *====================================================*
+. di as text ">>> Running M6: threshold model (if available)"
+>>> Running M6: threshold model (if available)
+
+. 
+. preserve
+
+. keep firmid year lev npr size tang growth ndts
+
+. 
+. * 仅保留完整年份覆盖的公司（平衡面板）
+. bysort firmid: egen ny = count(year)
+
+. keep if ny == `nyear'
+(13,473 observations deleted)
+
+. drop ny
+
+. 
+. xtset firmid year
+
+Panel variable: firmid (strongly balanced)
+ Time variable: year, 2011 to 2022
+         Delta: 1 unit
+
+. 
+. egen tagfirm = tag(firmid)
+
+. qui count if tagfirm
+
+. local nfirm_bal = r(N)
+
+. drop tagfirm
+
+. local nobs_bal = _N
+
+. 
+. di as result "Balanced firms kept for M6: `nfirm_bal'"
+Balanced firms kept for M6: 1319
+
+. di as result "Balanced obs for M6: " `nobs_bal'
+Balanced obs for M6: 15828
+
+. 
+. local m6_success = 0
+
+. 
+. if `has_xthreg' == 1 {
+.     capture noisily xthreg lev size tang growth ndts, ///
+>         rx(npr) qx(size) ///
+>         thnum(1) trim(0.05) grid(100) bs(100)
+. 
+.     if _rc == 0 {
+.         local m6_success = 1
+.         estimates store M6
+. 
+.         capture matrix F = e(Fstat)
+.         if !_rc {
+.             scalar F_single = F[1,3]
+.             scalar P_single = F[1,4]
+.             di as result "M6 single-threshold F statistic = " %9.4f F_single
+.             di as result "M6 bootstrap p-value        = " %9.4f P_single
+.             post `postkey' ("M6") ("Threshold test") (F_single) (.) (.) (P_single)
+.         }
+.     }
+.     else {
+.         di as text ">>> xthreg 已安装，但当前 M6 运行失败。"
+.         di as text ">>> 将继续使用手工 LR profile 生成 Fig7。"
+.     di as text ">>> v4 已改为固定临时变量 + replace，不再循环反复 gen/drop。"
+.     }
+. }
+
+. else {
+.     di as text ">>> 未检测到 xthreg。"
+>>> 未检测到 xthreg。
+.     di as text ">>> 将使用手工 LR profile 生成 Fig7。"
+>>> 将使用手工 LR profile 生成 Fig7。
+. }
+
+. 
+. * 为确保 Fig7 一定生成：手工计算 threshold profile LR path
+. qui su size, detail
+
+. local q05 = r(p5)
+
+. local q95 = r(p95)
+
+. local ngr = 100
+
+. 
+. tempfile m6profile
+
+. tempname postm6
+
+. postfile `postm6' double gamma ssr using `m6profile', replace
+(file C:\Users\Phyllis\AppData\Local\Temp\ST_10e8_000006.tmp not found)
+
+. 
+. tempvar npr_low npr_high __thr_resid __thr_sq
+
+. gen double `npr_low'  = .
+(15,828 missing values generated)
+
+. gen double `npr_high' = .
+(15,828 missing values generated)
+
+. 
+. forvalues i = 0/`ngr' {
+  2.     local g = `q05' + (`q95' - `q05') * `i' / `ngr'
+  3. 
+.     quietly replace `npr_low'  = npr * (size <= `g')
+  4.     quietly replace `npr_high' = npr * (size >  `g')
+  5. 
+.     * 这里只需要 SSR profile，不需要聚类方差，因此不加 vce() 更稳更快
+.     capture noisily qui reghdfe lev `npr_low' `npr_high' tang growth ndts, ///
+>         absorb(firmid year)
+  6. 
+.     if !_rc {
+  7.         local got_rss = 1
+  8.         capture scalar ssr_cur = e(rss)
+  9.         if _rc local got_rss = 0
+ 10. 
+.         if `got_rss' == 0 {
+ 11.             capture drop `__thr_resid' `__thr_sq'
+ 12.             quietly predict double `__thr_resid' if e(sample), resid
+ 13.             quietly gen double `__thr_sq' = `__thr_resid'^2 if e(sample)
+ 14.             quietly su `__thr_sq', meanonly
+ 15.             scalar ssr_cur = r(sum)
+ 16.             capture drop `__thr_resid' `__thr_sq'
+ 17.         }
+ 18. 
+.         if ssr_cur < . {
+ 19.             post `postm6' (`g') (ssr_cur)
+ 20.         }
+ 21.     }
+ 22. }
+
+. 
+. capture drop `npr_low' `npr_high' `__thr_resid' `__thr_sq'
+
+. postclose `postm6'
+
+. 
+. 
+. use `m6profile', clear
+
+. drop if missing(gamma) | missing(ssr)
+(0 observations deleted)
+
+. 
+. if _N > 0 {
+.     egen ssr_min = min(ssr)
+.     gen lr = `nobs_bal' * (ssr - ssr_min) / ssr_min
+. 
+.     gsort ssr gamma
+.     scalar gamma_star = gamma[1]
+.     scalar ssr_star   = ssr[1]
+. 
+.     sort gamma
+.     order gamma ssr lr
+.     save "$tab\M6_threshold_lr_profile.dta", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M6_threshold_lr_profile.dta not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M6_threshold_lr_profile.dta saved
+.     export delimited using "$tab\M6_threshold_lr_profile.csv", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M6_threshold_lr_profile.csv not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M6_threshold_lr_profile.csv saved
+.     export excel using "$tab\M6_threshold_lr_profile.xlsx", firstrow(variables) replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M6_threshold_lr_profile.xlsx saved
+. 
+.     post `postkey' ("M6_manual") ("Best gamma") (gamma_star) (.) (.) (.)
+. 
+.     twoway ///
+>         (line lr gamma, sort lwidth(medthick)), ///
+>         yline(7.35, lpattern(dash)) ///
+>         xline(`=scalar(gamma_star)', lpattern(shortdash)) ///
+>         title("Fig 7 Threshold LR Profile") ///
+>         xtitle("Threshold value of Size") ///
+>         ytitle("LR statistic") ///
+>         note("Dashed horizontal line = LR 95% critical value 7.35; vertical line = best gamma") ///
+>         name(fig7_m6, replace)
+.     graph export "$fig\Fig7_M6_lr_path.png", replace width(2200)
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\figures\Fig7_M6_lr_path.png not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\figures\Fig7_M6_lr_path.png saved as PNG format
+. }
+
+. else {
+.     di as text ">>> 手工 threshold profile 未得到有效结果，Fig7 已跳过。"
+. }
+
+. restore
+
+. 
+. *====================================================*
+. * 结果导出：M1-M3 主表 + M4/M5 图形数据
+. 
+. *====================================================*
+. cap which esttab
+
+. if !_rc {
+.     if `has_m1p_model' == 1 {
+.         capture noisily esttab M1 M1p M2_SOE M2_NonSOE M3 using "$tab\table_M1_M3_main.rtf", ///
+>             replace se star(* 0.10 ** 0.05 *** 0.01) ///
+>             stats(N Firms R2_within, fmt(%12.0fc %12.0fc %9.4f) ///
+>             labels("Obs." "Firms" "Within R2")) ///
+>             title("exP03 Regression Results: M1-M3") ///
+>             mtitles("M1 TWFE" "M1' IFE" "M2 SOE" "M2 NonSOE" "M3 Interaction") ///
+>             keep(npr 1.soe#c.npr m2_growth size tang growth ndts) ///
+>             coeflabels(npr "NPR" 1.soe#c.npr "SOE × NPR" m2_growth "M2 growth" size "Size" tang "Tang" growth "Growth" ndts "NDTS")
+.     }
+.     else {
+.         capture noisily esttab M1 M2_SOE M2_NonSOE M3 using "$tab\table_M1_M3_main.rtf", ///
+>             replace se star(* 0.10 ** 0.05 *** 0.01) ///
+>             stats(N Firms R2_within, fmt(%12.0fc %12.0fc %9.4f) ///
+>             labels("Obs." "Firms" "Within R2")) ///
+>             title("exP03 Regression Results: M1-M3") ///
+>             mtitles("M1 TWFE" "M2 SOE" "M2 NonSOE" "M3 Interaction") ///
+>             keep(npr 1.soe#c.npr size tang growth ndts) ///
+>             coeflabels(npr "NPR" 1.soe#c.npr "SOE × NPR" size "Size" tang "Tang" growth "Growth" ndts "NDTS")
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\table_M1_M3_main.rtf not found)
+(output written to D:\Microsoft VS Code\exP03_冯晓怡\output\tables\table_M1_M3_main.rtf)
+.     }
+. }
+
+. else {
+.     di as text ">>> esttab 不可用，回归主表已跳过，但模型结果仍保存在内存和日志中。"
+. }
+
+. 
+. postclose `postkey'
+
+. use `keyres', clear
+
+. format b se t p %9.4f
+
+. save "$tab\model_key_results.dta", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\model_key_results.dta saved
+
+. export excel using "$tab\model_key_results.xlsx", firstrow(variables) replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\model_key_results.xlsx saved
+
+. export delimited using "$tab\model_key_results.csv", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\model_key_results.csv saved
+
+. 
+. di as result ">>> 03_models_M1_M6_v4.do completed."
+>>> 03_models_M1_M6_v4.do completed.
+
+. di as result ">>> Output tables: $tab"
+>>> Output tables: D:\Microsoft VS Code\exP03_冯晓怡\output\tables
+
+. di as result ">>> Output figures: $fig"
+>>> Output figures: D:\Microsoft VS Code\exP03_冯晓怡\output\figures
+
+. 
+. capture log close

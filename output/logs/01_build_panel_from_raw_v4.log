@@ -1,0 +1,1086 @@
+-------------------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  D:\Microsoft VS Code\exP03_冯晓怡\output\logs\01_build_panel_from_raw_v4.log
+  log type:  text
+ opened on:  21 Apr 2026, 19:33:10
+
+. 
+. display as text ">>> Step 0 finished: folders are ready."
+>>> Step 0 finished: folders are ready.
+
+. display as result "Industry source file fixed as: industry.csv"
+Industry source file fixed as: industry.csv
+
+. 
+. *====================================================*
+. * 通用说明：
+. * 每张表导入后，都把 stkcd 统一处理成 6 位字符串：
+. *   000001, 000002, ...
+. * 这样 merge 时不会再出现 strL 作为键变量的问题。
+. *====================================================*
+. 
+. *----------------------------*
+. * 1. 资产负债表：保留 A 类年报 12/31
+. *----------------------------*
+. clear
+
+. import delimited using "$raw\balance_sheet.csv", ///
+>     clear encoding(GB18030) varnames(nonames) rowrange(2:) colrange(1:9) ///
+>     bindquotes(strict) maxquotedrows(unlimited)
+(9 vars, 546,661 obs)
+
+. 
+. rename (v1 v2 v3 v4 v5 v6 v7 v8 v9) ///
+>        (stkcd stkname enddate report_type bond_inv fa_net total_assets total_liab total_equity)
+
+. 
+. capture confirm numeric variable stkcd
+
+. if !_rc {
+.     tostring stkcd, replace format(%06.0f) force
+stkcd was long now str6
+. }
+
+. destring stkcd, gen(stkcd_num0) force
+stkcd: all characters numeric; stkcd_num0 generated as long
+
+. drop if missing(stkcd_num0)
+(0 observations deleted)
+
+. drop stkcd
+
+. gen str6 stkcd = string(stkcd_num0, "%06.0f")
+
+. drop stkcd_num0
+
+. 
+. gen statadate = daily(enddate, "YMD")
+
+. format statadate %td
+
+. gen year = year(statadate)
+
+. 
+. keep if inrange(year, 2010, 2025)
+(0 observations deleted)
+
+. keep if month(statadate)==12 & day(statadate)==31
+(429,513 observations deleted)
+
+. keep if report_type=="A"
+(57,976 observations deleted)
+
+. 
+. * 剔除 B 股（简称末尾为 B）
+. drop if regexm(stkname, "B$")
+(902 observations deleted)
+
+. 
+. keep stkcd stkname year total_assets total_liab total_equity fa_net
+
+. duplicates report stkcd year
+
+Duplicates in terms of stkcd year
+
+--------------------------------------
+   Copies | Observations       Surplus
+----------+---------------------------
+        1 |        58270             0
+--------------------------------------
+
+. isid stkcd year
+
+. 
+. compress
+  variable year was float now int
+  (116,540 bytes saved)
+
+. save "$temp\balance_annual.dta", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\balance_annual.dta saved
+
+. display as result "balance_annual.dta saved."
+balance_annual.dta saved.
+
+. 
+. *----------------------------*
+. * 2. 利润表：保留 A 类年报 12/31
+. *----------------------------*
+. clear
+
+. import delimited using "$raw\income_stmt.csv", ///
+>     clear encoding(GB18030) varnames(nonames) rowrange(2:) colrange(1:6) ///
+>     bindquotes(strict) maxquotedrows(unlimited)
+(6 vars, 546,633 obs)
+
+. 
+. rename (v1 v2 v3 v4 v5 v6) ///
+>        (stkcd stkname enddate report_type profit_total net_profit)
+
+. 
+. capture confirm numeric variable stkcd
+
+. if !_rc {
+.     tostring stkcd, replace format(%06.0f) force
+stkcd was long now str6
+. }
+
+. destring stkcd, gen(stkcd_num0) force
+stkcd: all characters numeric; stkcd_num0 generated as long
+
+. drop if missing(stkcd_num0)
+(0 observations deleted)
+
+. drop stkcd
+
+. gen str6 stkcd = string(stkcd_num0, "%06.0f")
+
+. drop stkcd_num0
+
+. 
+. gen statadate = daily(enddate, "YMD")
+
+. format statadate %td
+
+. gen year = year(statadate)
+
+. 
+. keep if inrange(year, 2010, 2025)
+(0 observations deleted)
+
+. keep if month(statadate)==12 & day(statadate)==31
+(429,488 observations deleted)
+
+. keep if report_type=="A"
+(57,971 observations deleted)
+
+. 
+. drop if regexm(stkname, "B$")
+(902 observations deleted)
+
+. 
+. keep stkcd year net_profit
+
+. duplicates report stkcd year
+
+Duplicates in terms of stkcd year
+
+--------------------------------------
+   Copies | Observations       Surplus
+----------+---------------------------
+        1 |        58272             0
+--------------------------------------
+
+. isid stkcd year
+
+. 
+. compress
+  variable year was float now int
+  (116,544 bytes saved)
+
+. save "$temp\income_annual.dta", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\income_annual.dta saved
+
+. display as result "income_annual.dta saved."
+income_annual.dta saved.
+
+. 
+. *----------------------------*
+. * 3. 现金流量表：构造 NDTS 分子
+. *----------------------------*
+. clear
+
+. import delimited using "$raw\cashflow.csv", ///
+>     clear encoding(GB18030) varnames(nonames) rowrange(2:) colrange(1:9) ///
+>     bindquotes(strict) maxquotedrows(unlimited)
+(9 vars, 226,784 obs)
+
+. 
+. rename (v1 v2 v3 v4 v5 v6 v7 v8 v9) ///
+>        (stkcd stkname enddate report_type dep_fa dep_invest dep_rou amort_intang amort_lte)
+
+. 
+. capture confirm numeric variable stkcd
+
+. if !_rc {
+.     tostring stkcd, replace format(%06.0f) force
+stkcd was long now str6
+. }
+
+. destring stkcd, gen(stkcd_num0) force
+stkcd: all characters numeric; stkcd_num0 generated as long
+
+. drop if missing(stkcd_num0)
+(0 observations deleted)
+
+. drop stkcd
+
+. gen str6 stkcd = string(stkcd_num0, "%06.0f")
+
+. drop stkcd_num0
+
+. 
+. gen statadate = daily(enddate, "YMD")
+
+. format statadate %td
+
+. gen year = year(statadate)
+
+. 
+. keep if inrange(year, 2010, 2025)
+(0 observations deleted)
+
+. keep if month(statadate)==12 & day(statadate)==31
+(155,569 observations deleted)
+
+. keep if report_type=="A"
+(12,091 observations deleted)
+
+. 
+. drop if regexm(stkname, "B$")
+(902 observations deleted)
+
+. 
+. foreach v in dep_fa dep_invest dep_rou amort_intang amort_lte {
+  2.     replace `v' = 0 if missing(`v')
+  3. }
+(74 real changes made)
+(57,301 real changes made)
+(38,160 real changes made)
+(535 real changes made)
+(5,287 real changes made)
+
+. 
+. egen ndts_num = rowtotal(dep_fa dep_invest dep_rou amort_intang amort_lte)
+
+. keep stkcd year ndts_num
+
+. duplicates report stkcd year
+
+Duplicates in terms of stkcd year
+
+--------------------------------------
+   Copies | Observations       Surplus
+----------+---------------------------
+        1 |        58222             0
+--------------------------------------
+
+. isid stkcd year
+
+. 
+. compress
+  variable year was float now int
+  (116,444 bytes saved)
+
+. save "$temp\cashflow_annual.dta", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\cashflow_annual.dta saved
+
+. display as result "cashflow_annual.dta saved."
+cashflow_annual.dta saved.
+
+. 
+. *----------------------------*
+. * 4. 股权性质：构造 SOE
+. *----------------------------*
+. clear
+
+. import delimited using "$raw\ownership.csv", ///
+>     clear encoding(GB18030) varnames(nonames) rowrange(2:) colrange(1:6) ///
+>     bindquotes(strict) maxquotedrows(unlimited)
+(6 vars, 55,716 obs)
+
+. 
+. rename (v1 v2 v3 v4 v5 v6) ///
+>        (stkcd stkname enddate ctrltype_code ownership_type ownership_code)
+
+. 
+. capture confirm numeric variable stkcd
+
+. if !_rc {
+.     tostring stkcd, replace format(%06.0f) force
+stkcd was long now str6
+. }
+
+. destring stkcd, gen(stkcd_num0) force
+stkcd: all characters numeric; stkcd_num0 generated as long
+
+. drop if missing(stkcd_num0)
+(0 observations deleted)
+
+. drop stkcd
+
+. gen str6 stkcd = string(stkcd_num0, "%06.0f")
+
+. drop stkcd_num0
+
+. 
+. gen statadate = daily(enddate, "YMD")
+
+. format statadate %td
+
+. gen year = year(statadate)
+
+. 
+. keep if inrange(year, 2010, 2025)
+(0 observations deleted)
+
+. drop if regexm(stkname, "B$")
+(182 observations deleted)
+
+. 
+. gen soe = .
+(55,534 missing values generated)
+
+. replace soe = 1 if strpos(ownership_type, "国企")>0
+(17,911 real changes made)
+
+. replace soe = 0 if missing(soe) & ownership_type!=""
+(36,022 real changes made)
+
+. label define SOE 0 "Non-SOE" 1 "SOE"
+
+. label values soe SOE
+
+. 
+. keep stkcd year soe ownership_type
+
+. duplicates report stkcd year
+
+Duplicates in terms of stkcd year
+
+--------------------------------------
+   Copies | Observations       Surplus
+----------+---------------------------
+        1 |        55534             0
+--------------------------------------
+
+. isid stkcd year
+
+. 
+. compress
+  variable year was float now int
+  variable soe was float now byte
+  (277,670 bytes saved)
+
+. save "$temp\ownership_year.dta", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\ownership_year.dta saved
+
+. display as result "ownership_year.dta saved."
+ownership_year.dta saved.
+
+. 
+. *----------------------------*
+. * 5. 行业分类：制造业用二级行业代码，非制造业用一级行业代码
+. *----------------------------*
+. clear
+
+. import delimited using "$raw\industry.csv", ///
+>     clear encoding(GB18030) varnames(nonames) rowrange(2:) colrange(1:13) ///
+>     bindquotes(strict) maxquotedrows(unlimited)
+(13 vars, 231,975 obs)
+
+. 
+. rename (v1  v2      v3       v4    v5    v6      v7           v8        v9        v10           v11           v12       v13) ///
+>        (listedco_id enddate std_code secid stkcd stkname ind_standard ind1_code ind1_name ind1_subcode ind1_subname ind2_code ind2_name)
+
+. 
+. capture confirm numeric variable stkcd
+
+. if !_rc {
+.     tostring stkcd, replace format(%06.0f) force
+stkcd was long now str6
+. }
+
+. destring stkcd, gen(stkcd_num0) force
+stkcd: all characters numeric; stkcd_num0 generated as long
+
+. drop if missing(stkcd_num0)
+(0 observations deleted)
+
+. drop stkcd
+
+. gen str6 stkcd = string(stkcd_num0, "%06.0f")
+
+. drop stkcd_num0
+
+. 
+. gen statadate = daily(enddate, "YMD")
+
+. format statadate %td
+
+. gen year = year(statadate)
+
+. 
+. keep if inrange(year, 2010, 2025)
+(0 observations deleted)
+
+. drop if regexm(stkname, "B$")
+(759 observations deleted)
+
+. 
+. * 仅保留“证监会行业分类”记录
+. keep if strpos(ind_standard, "证监会行业分类")>0
+(188,686 observations deleted)
+
+. 
+. duplicates report stkcd year
+
+Duplicates in terms of stkcd year
+
+--------------------------------------
+   Copies | Observations       Surplus
+----------+---------------------------
+        1 |        42530             0
+--------------------------------------
+
+. isid stkcd year
+
+. 
+. replace ind1_code = strtrim(ind1_code)
+(0 real changes made)
+
+. replace ind2_code = strtrim(ind2_code)
+(0 real changes made)
+
+. 
+. gen manuf = (ind1_code=="C")
+
+. label define MANUF 0 "Non-manufacturing" 1 "Manufacturing"
+
+. label values manuf MANUF
+
+. 
+. gen ind_code = ""
+(42,530 missing values generated)
+
+. replace ind_code = ind2_code if manuf==1 & ind2_code!=""
+variable ind_code was str1 now str3
+(27,005 real changes made)
+
+. replace ind_code = ind1_code if ind_code==""
+(15,525 real changes made)
+
+. 
+. gen ind_name = ""
+(42,530 missing values generated)
+
+. replace ind_name = ind2_name if manuf==1 & ind2_code!=""
+variable ind_name was str1 now str60
+(27,005 real changes made)
+
+. replace ind_name = ind1_name if ind_name==""
+(15,525 real changes made)
+
+. 
+. gen ind2_num = .
+(42,530 missing values generated)
+
+. replace ind2_num = real(substr(ind2_code, 2, .)) if manuf==1 & ind2_code!=""
+(27,005 real changes made)
+
+. 
+. egen ind_fe = group(ind_code), label
+
+. 
+. * 金融行业标记：2010-2011 常见为 I，2012+ 常见为 J
+. gen fin_ind = inlist(ind1_code, "I", "J")
+
+. 
+. label var ind_code "CSRC industry code: manufacturing uses 2nd-level, otherwise 1st-level"
+
+. label var ind_name "Industry name matched to ind_code"
+
+. label var ind2_num "Numeric part of manufacturing 2nd-level code"
+
+. label var ind_fe   "Encoded industry FE group"
+
+. label var fin_ind  "Financial industry dummy (I/J)"
+
+. 
+. keep stkcd year ind_standard ind1_code ind1_name ind2_code ind2_name ///
+>      manuf ind_code ind_name ind2_num ind_fe fin_ind
+
+. 
+. compress
+  variable year was float now int
+  variable manuf was float now byte
+  variable ind2_num was float now byte
+  variable ind_fe was float now byte
+  variable fin_ind was float now byte
+  variable ind_standard was str48 now str31
+  variable ind1_code was str8 now str1
+  variable ind2_code was str8 now str3
+  (1,828,790 bytes saved)
+
+. save "$temp\industry_year.dta", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\industry_year.dta saved
+
+. display as result "industry_year.dta saved."
+industry_year.dta saved.
+
+. 
+. *----------------------------*
+. * 6. ST/PT：只要曾 ST/PT/暂停上市，整家公司剔除
+. *----------------------------*
+. clear
+
+. import delimited using "$raw\st_flag.csv", ///
+>     clear encoding(GB18030) varnames(nonames) rowrange(2:) colrange(1:5) ///
+>     bindquotes(strict) maxquotedrows(unlimited)
+(5 vars, 81,625 obs)
+
+. 
+. rename (v1 v2 v3 v4 v5) ///
+>        (stkcd stkname enddate major_change list_status)
+
+. 
+. capture confirm numeric variable stkcd
+
+. if !_rc {
+.     tostring stkcd, replace format(%06.0f) force
+. }
+
+. destring stkcd, gen(stkcd_num0) force
+stkcd: contains nonnumeric characters; stkcd_num0 generated as double
+(57362 missing values generated)
+
+. drop if missing(stkcd_num0)
+(57,362 observations deleted)
+
+. drop stkcd
+
+. gen str6 stkcd = string(stkcd_num0, "%06.0f")
+
+. drop stkcd_num0
+
+. recast str6 stkcd
+
+. 
+. gen statadate = daily(enddate, "YMD")
+(411 missing values generated)
+
+. format statadate %td
+
+. gen year = year(statadate)
+(411 missing values generated)
+
+. 
+. keep if inrange(year, 2010, 2025)
+(413 observations deleted)
+
+. drop if regexm(stkname, "B$")
+(96 observations deleted)
+
+. 
+. gen stpt_flag = 0
+
+. replace stpt_flag = 1 if regexm(list_status, "ST|PT|暂停上市|退市")
+(894 real changes made)
+
+. replace stpt_flag = 1 if regexm(major_change, "ST|PT")
+(48 real changes made)
+
+. 
+. bysort stkcd: egen ever_stpt = max(stpt_flag)
+
+. keep stkcd ever_stpt
+
+. duplicates drop stkcd, force
+
+Duplicates in terms of stkcd
+
+(21,805 observations deleted)
+
+. isid stkcd
+
+. 
+. compress
+  variable ever_stpt was float now byte
+  (5,847 bytes saved)
+
+. save "$temp\st_ever.dta", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\st_ever.dta saved
+
+. display as result "st_ever.dta saved."
+st_ever.dta saved.
+
+. 
+. *----------------------------*
+. * 7. M2：由月度转为年度同比（取每年 12 月值）
+. *----------------------------*
+. clear
+
+. import delimited using "$raw\m2.csv", ///
+>     clear encoding(GB18030) varnames(nonames) rowrange(2:) colrange(1:3) ///
+>     bindquotes(strict) maxquotedrows(unlimited)
+(3 vars, 192 obs)
+
+. 
+. rename (v1 v2 v3) (period data_id m2_level)
+
+. capture confirm string variable m2_level
+
+. if !_rc {
+.     destring m2_level, replace ignore(",") force
+. }
+
+. 
+. gen mon_abbr = lower(substr(period, 1, 3))
+
+. gen year2    = real(substr(period, -2, 2))
+
+. gen year     = 2000 + year2
+
+. gen month    = .
+(192 missing values generated)
+
+. 
+. replace month =  1 if mon_abbr=="jan"
+(16 real changes made)
+
+. replace month =  2 if mon_abbr=="feb"
+(16 real changes made)
+
+. replace month =  3 if mon_abbr=="mar"
+(16 real changes made)
+
+. replace month =  4 if mon_abbr=="apr"
+(16 real changes made)
+
+. replace month =  5 if mon_abbr=="may"
+(16 real changes made)
+
+. replace month =  6 if mon_abbr=="jun"
+(16 real changes made)
+
+. replace month =  7 if mon_abbr=="jul"
+(16 real changes made)
+
+. replace month =  8 if mon_abbr=="aug"
+(16 real changes made)
+
+. replace month =  9 if mon_abbr=="sep"
+(16 real changes made)
+
+. replace month = 10 if mon_abbr=="oct"
+(16 real changes made)
+
+. replace month = 11 if mon_abbr=="nov"
+(16 real changes made)
+
+. replace month = 12 if mon_abbr=="dec"
+(16 real changes made)
+
+. 
+. keep if inrange(year, 2010, 2025)
+(0 observations deleted)
+
+. keep if month==12
+(176 observations deleted)
+
+. 
+. sort year
+
+. tsset year
+
+Time variable: year, 2010 to 2025
+        Delta: 1 unit
+
+. gen m2_growth = 100 * (m2_level - L.m2_level) / L.m2_level
+(1 missing value generated)
+
+. 
+. keep year m2_level m2_growth
+
+. isid year
+
+. 
+. compress
+  variable year was float now int
+  (32 bytes saved)
+
+. save "$temp\m2_year.dta", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\m2_year.dta saved
+
+. display as result "m2_year.dta saved."
+m2_year.dta saved.
+
+. 
+. *----------------------------*
+. * 8. 合并为年度面板
+. *----------------------------*
+. use "$temp\balance_annual.dta", clear
+
+. 
+. merge 1:1 stkcd year using "$temp\income_annual.dta",    nogen keep(master match)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                            58,270  
+    -----------------------------------------
+
+. merge 1:1 stkcd year using "$temp\cashflow_annual.dta",  nogen keep(master match)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                            50
+        from master                        50  
+        from using                          0  
+
+    Matched                            58,220  
+    -----------------------------------------
+
+. merge 1:1 stkcd year using "$temp\ownership_year.dta",   nogen keep(master match)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                         2,738
+        from master                     2,738  
+        from using                          0  
+
+    Matched                            55,532  
+    -----------------------------------------
+
+. merge 1:1 stkcd year using "$temp\industry_year.dta",    nogen keep(master match)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                        16,038
+        from master                    16,038  
+        from using                          0  
+
+    Matched                            42,232  
+    -----------------------------------------
+
+. merge m:1 stkcd using "$temp\st_ever.dta",               nogen keep(master match)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                        32,672
+        from master                    32,672  
+        from using                          0  
+
+    Matched                            25,598  
+    -----------------------------------------
+
+. merge m:1 year  using "$temp\m2_year.dta",               nogen keep(master match)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                            58,270  
+    -----------------------------------------
+
+. 
+. destring stkcd, gen(stkcd_num) force
+stkcd: all characters numeric; stkcd_num generated as long
+
+. egen firmid = group(stkcd)
+
+. 
+. *----------------------------*
+. * 9. 构造变量
+. *----------------------------*
+. gen lev    = total_liab  / total_assets
+(1 missing value generated)
+
+. gen npr    = net_profit  / total_assets
+(1 missing value generated)
+
+. gen size   = ln(total_assets)
+(1 missing value generated)
+
+. gen tang   = fa_net      / total_assets
+(4 missing values generated)
+
+. gen ndts   = ndts_num    / total_assets
+(51 missing values generated)
+
+. 
+. xtset firmid year
+
+Panel variable: firmid (unbalanced)
+ Time variable: year, 2010 to 2025, but with gaps
+         Delta: 1 unit
+
+. gen growth = (total_assets - L.total_assets) / L.total_assets
+(5,729 missing values generated)
+
+. 
+. label var stkcd_num  "Numeric stock code"
+
+. label var firmid     "Firm identifier for panel setting"
+
+. label var lev        "Leverage = total liabilities / total assets"
+
+. label var npr        "Net profit ratio = net profit / total assets"
+
+. label var size       "Firm size = ln(total assets)"
+
+. label var tang       "Tangibility = net fixed assets / total assets"
+
+. label var ndts       "NDTS = depreciation and amortization / total assets"
+
+. label var growth     "Asset growth"
+
+. label var soe        "SOE dummy"
+
+. label var m2_growth  "Annual M2 growth (%)"
+
+. 
+. compress
+  variable firmid was float now int
+  (116,540 bytes saved)
+
+. save "$clean\panel_before_screening.dta", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\data\clean\panel_before_screening.dta not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\data\clean\panel_before_screening.dta saved
+
+. display as result "panel_before_screening.dta saved."
+panel_before_screening.dta saved.
+
+. 
+. *----------------------------*
+. * 10. 记录样本筛选流程
+. *----------------------------*
+. tempname memhold
+
+. postfile `memhold' str30 step double dropped remain_obs remain_firms using "$tab\sample_flow.dta", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\sample_flow.dta not found)
+
+. 
+. capture drop tagfirm
+
+. egen tagfirm = tag(stkcd)
+
+. count
+  58,270
+
+. local N0 = r(N)
+
+. count if tagfirm
+  5,719
+
+. local F0 = r(N)
+
+. drop tagfirm
+
+. post `memhold' ("初始样本(A股年报)") (.) (`N0') (`F0')
+
+. 
+. * 剔除金融保险业：行业代码 I / J
+. count if fin_ind==1
+  3,882
+
+. local D1 = r(N)
+
+. drop if fin_ind==1
+(3,882 observations deleted)
+
+. 
+. capture drop tagfirm
+
+. egen tagfirm = tag(stkcd)
+
+. count
+  54,388
+
+. local N1 = r(N)
+
+. count if tagfirm
+  5,712
+
+. local F1 = r(N)
+
+. drop tagfirm
+
+. post `memhold' ("剔除金融保险") (`D1') (`N1') (`F1')
+
+. 
+. * 剔除曾 ST/PT 公司
+. replace ever_stpt = 0 if missing(ever_stpt)
+(30,913 real changes made)
+
+. count if ever_stpt==1
+  5,463
+
+. local D2 = r(N)
+
+. drop if ever_stpt==1
+(5,463 observations deleted)
+
+. 
+. capture drop tagfirm
+
+. egen tagfirm = tag(stkcd)
+
+. count
+  48,925
+
+. local N2 = r(N)
+
+. count if tagfirm
+  5,297
+
+. local F2 = r(N)
+
+. drop tagfirm
+
+. post `memhold' ("剔除ST/PT") (`D2') (`N2') (`F2')
+
+. 
+. * 剔除资不抵债（Lev > 1）
+. count if lev > 1 & !missing(lev)
+  187
+
+. local D3 = r(N)
+
+. drop if lev > 1 & !missing(lev)
+(187 observations deleted)
+
+. 
+. capture drop tagfirm
+
+. egen tagfirm = tag(stkcd)
+
+. count
+  48,738
+
+. local N3 = r(N)
+
+. count if tagfirm
+  5,297
+
+. local F3 = r(N)
+
+. drop tagfirm
+
+. post `memhold' ("剔除Lev>1") (`D3') (`N3') (`F3')
+
+. 
+. * 剔除关键变量缺失
+. count if missing(lev, npr, size, tang, growth, ndts, soe, ind_code)
+  19,437
+
+. local D4 = r(N)
+
+. drop if missing(lev, npr, size, tang, growth, ndts, soe, ind_code)
+(19,437 observations deleted)
+
+. 
+. capture drop tagfirm
+
+. egen tagfirm = tag(stkcd)
+
+. count
+  29,301
+
+. local N4 = r(N)
+
+. count if tagfirm
+  3,998
+
+. local F4 = r(N)
+
+. drop tagfirm
+
+. post `memhold' ("剔除缺失值") (`D4') (`N4') (`F4')
+
+. 
+. postclose `memhold'
+
+. 
+. use "$tab\sample_flow.dta", clear
+
+. export delimited using "$tab\sample_flow.csv", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\sample_flow.csv not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\sample_flow.csv saved
+
+. save "$tab\sample_flow.dta", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\sample_flow.dta saved
+
+. display as result "sample_flow.dta / sample_flow.csv saved."
+sample_flow.dta / sample_flow.csv saved.
+
+. 
+. *----------------------------*
+. * 11. Winsorize：按年双侧 1%
+. *----------------------------*
+. use "$clean\panel_before_screening.dta", clear
+
+. 
+. drop if fin_ind==1
+(3,882 observations deleted)
+
+. replace ever_stpt = 0 if missing(ever_stpt)
+(30,913 real changes made)
+
+. drop if ever_stpt==1
+(5,463 observations deleted)
+
+. drop if lev > 1 & !missing(lev)
+(187 observations deleted)
+
+. drop if missing(lev, npr, size, tang, growth, ndts, soe, ind_code)
+(19,437 observations deleted)
+
+. 
+. foreach v in lev npr tang growth ndts {
+  2.     gen `v'_raw = `v'
+  3. }
+
+. 
+. cap which winsor2
+
+. if _rc ssc install winsor2, replace
+checking winsor2 consistency and verifying not already installed...
+installing into C:\Users\Phyllis\ado\plus\...
+installation complete.
+
+. 
+. winsor2 lev npr tang growth ndts, cuts(1 99) by(year) replace
+
+. 
+. notes _dta: 当前行业变量已更新为“制造业用二级行业代码，非制造业用一级行业代码”。
+
+. notes _dta: 金融行业在当前上传行业表中需要同时按 I 和 J 剔除。
+
+. notes _dta: 已按简称末尾 B 剔除 B 股。
+
+. notes _dta: 本版已将所有 merge 用的 stkcd 强制统一为 str6，修复了 strL merge 报错。
+
+. 
+. order stkcd stkcd_num firmid stkname year ind1_code ind1_name ind2_code ind2_name ///
+>       manuf ind_code ind_name ind2_num ind_fe fin_ind soe ///
+>       total_assets total_liab total_equity net_profit fa_net ndts_num ///
+>       lev npr size tang growth ndts ///
+>       lev_raw npr_raw tang_raw growth_raw ndts_raw ///
+>       m2_level m2_growth ever_stpt
+
+. 
+. compress
+  variable ownership_type was str20 now str13
+  (205,107 bytes saved)
+
+. save "$clean\panel_clean_for_analysis.dta", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\data\clean\panel_clean_for_analysis.dta not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\data\clean\panel_clean_for_analysis.dta saved
+
+. export delimited using "$clean\panel_clean_for_analysis.csv", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\data\clean\panel_clean_for_analysis.csv not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\data\clean\panel_clean_for_analysis.csv saved
+
+. 
+. display as result "panel_clean_for_analysis.dta / .csv saved."
+panel_clean_for_analysis.dta / .csv saved.
+
+. display as result "v4 fix completed: stkcd merge keys standardized to str6."
+v4 fix completed: stkcd merge keys standardized to str6.
+
+. 
+. log close
+      name:  <unnamed>
+       log:  D:\Microsoft VS Code\exP03_冯晓怡\output\logs\01_build_panel_from_raw_v4.log
+  log type:  text
+ closed on:  21 Apr 2026, 19:33:27
+-------------------------------------------------------------------------------------------------------------------------------------------------

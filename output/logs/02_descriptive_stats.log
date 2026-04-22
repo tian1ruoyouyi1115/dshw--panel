@@ -1,0 +1,728 @@
+-------------------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  D:\Microsoft VS Code\exP03_冯晓怡\output\logs\02_descriptive_stats.log
+  log type:  text
+ opened on:  21 Apr 2026, 20:30:37
+
+. 
+. *----------------------------*
+. * 1. 读入清洗后的面板数据
+. *----------------------------*
+. use "$clean\panel_clean_for_analysis.dta", clear
+
+. sort firmid year
+
+. xtset firmid year
+
+Panel variable: firmid (unbalanced)
+ Time variable: year, 2011 to 2022, but with gaps
+         Delta: 1 unit
+
+. 
+. qui levelsof year, local(years)
+
+. local minyear : word 1 of `years'
+
+. local maxyear : word `: word count `years'' of `years'
+
+. 
+. egen tagfirm = tag(firmid)
+
+. qui count if tagfirm
+
+. local nfirm = r(N)
+
+. drop tagfirm
+
+. 
+. di as result ">>> clean sample loaded"
+>>> clean sample loaded
+
+. di as result "Years: `minyear' - `maxyear'"
+Years: 2011 - 2022
+
+. di as result "Firms: `nfirm'"
+Firms: 3998
+
+. di as result "Obs: " _N
+Obs: 29301
+
+. 
+. * 主要变量列表
+. local mainvars lev npr size tang growth ndts
+
+. local corrvars lev npr size tang growth ndts soe
+
+. 
+. 
+. *====================================================*
+. * Part 2.1 主要变量描述性统计
+. *====================================================*
+. 
+. * 先保存一份原始面板，后面所有统计都回到这份数据上做
+. save "$temp\panel_for_desc_stats.dta", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\panel_for_desc_stats.dta not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\panel_for_desc_stats.dta saved
+
+. 
+. local desc_long "$temp\desc_stats_long_temp.dta"
+
+. cap erase "`desc_long'"
+
+. 
+. tempname postdesc
+
+. postfile `postdesc' str10 sample str12 var ///
+>     double N Mean SD P10 P25 Median P75 P90 ///
+>     using "`desc_long'", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\desc_stats_long_temp.dta not found)
+
+. 
+. foreach grp in all soe nonsoe {
+  2.     use "$temp\panel_for_desc_stats.dta", clear
+  3. 
+.     if "`grp'" == "soe" {
+  4.         keep if soe == 1
+  5.         local gname "SOE"
+  6.     }
+  7.     else if "`grp'" == "nonsoe" {
+  8.         keep if soe == 0
+  9.         local gname "NonSOE"
+ 10.     }
+ 11.     else {
+ 12.         local gname "All"
+ 13.     }
+ 14. 
+.     foreach v of local mainvars {
+ 15.         capture confirm variable `v'
+ 16.         if _rc {
+ 17.             di as error "变量 `v' 在当前数据中不存在，已跳过。"
+ 18.             continue
+ 19.         }
+ 20. 
+.         qui count if !missing(`v')
+ 21.         local N = r(N)
+ 22. 
+.         qui su `v', detail
+ 23.         post `postdesc' ("`gname'") ("`v'") ///
+>             (`N') (r(mean)) (r(sd)) (r(p10)) (r(p25)) (r(p50)) (r(p75)) (r(p90))
+ 24.     }
+ 25. }
+(18,917 observations deleted)
+(10,384 observations deleted)
+
+. postclose `postdesc'
+
+. 
+. use "`desc_long'", clear
+
+. format N %12.0fc
+
+. format Mean SD P10 P25 Median P75 P90 %9.4f
+
+. sort var sample
+
+. save "$tab\desc_stats_long.dta", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\desc_stats_long.dta saved
+
+. export delimited using "$tab\desc_stats_long.csv", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\desc_stats_long.csv saved
+
+. 
+. * 整理成宽表，更适合直接插表
+. gen sample_order = .
+(18 missing values generated)
+
+. replace sample_order = 1 if sample == "All"
+(6 real changes made)
+
+. replace sample_order = 2 if sample == "SOE"
+(6 real changes made)
+
+. replace sample_order = 3 if sample == "NonSOE"
+(6 real changes made)
+
+. sort var sample_order
+
+. drop sample_order
+
+. 
+. duplicates report var sample
+
+Duplicates in terms of var sample
+
+--------------------------------------
+   Copies | Observations       Surplus
+----------+---------------------------
+        1 |           18             0
+--------------------------------------
+
+. isid var sample
+
+. 
+. reshape wide N Mean SD P10 P25 Median P75 P90, i(var) j(sample) string
+(j = All NonSOE SOE)
+
+Data                               Long   ->   Wide
+-----------------------------------------------------------------------------
+Number of observations               18   ->   6           
+Number of variables                  10   ->   25          
+j variable (3 values)            sample   ->   (dropped)
+xij variables:
+                                      N   ->   NAll NNonSOE NSOE
+                                   Mean   ->   MeanAll MeanNonSOE MeanSOE
+                                     SD   ->   SDAll SDNonSOE SDSOE
+                                    P10   ->   P10All P10NonSOE P10SOE
+                                    P25   ->   P25All P25NonSOE P25SOE
+                                 Median   ->   MedianAll MedianNonSOE MedianSOE
+                                    P75   ->   P75All P75NonSOE P75SOE
+                                    P90   ->   P90All P90NonSOE P90SOE
+-----------------------------------------------------------------------------
+
+. order var NAll MeanAll SDAll P10All P25All MedianAll P75All P90All ///
+>           NSOE MeanSOE SDSOE P10SOE P25SOE MedianSOE P75SOE P90SOE ///
+>           NNonSOE MeanNonSOE SDNonSOE P10NonSOE P25NonSOE MedianNonSOE P75NonSOE P90NonSOE
+
+. 
+. save "$tab\desc_stats_wide.dta", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\desc_stats_wide.dta saved
+
+. export excel using "$tab\desc_stats_wide.xlsx", firstrow(variables) replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\desc_stats_wide.xlsx saved
+
+. export delimited using "$tab\desc_stats_wide.csv", replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\desc_stats_wide.csv saved
+
+. 
+. di as result ">>> 2.1 描述性统计表已导出"
+>>> 2.1 描述性统计表已导出
+
+. 
+. *----------------------------*
+. * 2.1 补充：SOE vs Non-SOE t 检验
+. *----------------------------*
+. 
+. * 关键修复：
+. * 旧版在 reshape 之后继续做 t 检验，当前内存里已不是原始面板，而是汇总表，
+. * 所以会报 variable lev not found。这里强制重新载入原始面板。
+. use "$temp\panel_for_desc_stats.dta", clear
+
+. 
+. foreach v of local mainvars {
+  2.     capture confirm variable `v'
+  3.     if _rc {
+  4.         di as error "变量 `v' 在原始面板中不存在，已跳过 t 检验。"
+  5.         continue
+  6.     }
+  7. }
+
+. capture confirm variable soe
+
+. if _rc {
+.     di as error "变量 soe 不存在，无法进行 SOE / Non-SOE t 检验。"
+.     exit 111
+. }
+
+. 
+. local ttest_out "$temp\ttest_soe_vs_nonsoe_temp.dta"
+
+. cap erase "`ttest_out'"
+
+. 
+. tempname posttt
+
+. postfile `posttt' str12 var ///
+>     double mean_soe mean_nonsoe diff tstat pvalue ///
+>     using "`ttest_out'", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\ttest_soe_vs_nonsoe_temp.dta not found)
+
+. 
+. foreach v of local mainvars {
+  2.     capture confirm variable `v'
+  3.     if _rc continue
+  4. 
+.     qui count if !missing(`v') & !missing(soe)
+  5.     if r(N) == 0 continue
+  6. 
+.     qui su `v' if soe == 1, meanonly
+  7.     local m1 = r(mean)
+  8. 
+.     qui su `v' if soe == 0, meanonly
+  9.     local m0 = r(mean)
+ 10. 
+.     capture noisily qui ttest `v', by(soe)
+ 11.     if _rc {
+ 12.         di as text ">>> `v' 的 t 检验未成功运行，已跳过。"
+ 13.         continue
+ 14.     }
+ 15. 
+.     post `posttt' ("`v'") (`m1') (`m0') (`m1' - `m0') (r(t)) (r(p))
+ 16. }
+
+. postclose `posttt'
+
+. 
+. use "`ttest_out'", clear
+
+. gen stars = ""
+(6 missing values generated)
+
+. replace stars = "***" if pvalue < 0.01
+variable stars was str1 now str3
+(6 real changes made)
+
+. replace stars = "**"  if pvalue >= 0.01 & pvalue < 0.05
+(0 real changes made)
+
+. replace stars = "*"   if pvalue >= 0.05 & pvalue < 0.10
+(0 real changes made)
+
+. 
+. gen diff_star = string(diff, "%9.4f") + stars
+
+. format mean_soe mean_nonsoe diff tstat pvalue %9.4f
+
+. save "$tab\ttest_soe_vs_nonsoe.dta", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\ttest_soe_vs_nonsoe.dta not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\ttest_soe_vs_nonsoe.dta saved
+
+. export excel using "$tab\ttest_soe_vs_nonsoe.xlsx", firstrow(variables) replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\ttest_soe_vs_nonsoe.xlsx saved
+
+. export delimited using "$tab\ttest_soe_vs_nonsoe.csv", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\ttest_soe_vs_nonsoe.csv not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\ttest_soe_vs_nonsoe.csv saved
+
+. 
+. di as result ">>> SOE / Non-SOE t 检验结果已导出"
+>>> SOE / Non-SOE t 检验结果已导出
+
+. 
+. * 为后续相关矩阵和作图再重新载入原始面板
+. use "$temp\panel_for_desc_stats.dta", clear
+
+. sort firmid year
+
+. xtset firmid year
+
+Panel variable: firmid (unbalanced)
+ Time variable: year, 2011 to 2022, but with gaps
+         Delta: 1 unit
+
+. 
+. *====================================================*
+. * Part 2.2 相关系数矩阵
+. *====================================================*
+. 
+. local K : word count `corrvars'
+
+. matrix C = J(`K', `K', .)
+
+. matrix P = J(`K', `K', .)
+
+. 
+. local i = 1
+
+. foreach x of local corrvars {
+  2.     local j = 1
+  3.     foreach y of local corrvars {
+  4.         if `i' == `j' {
+  5.             matrix C[`i', `j'] = 1
+  6.             matrix P[`i', `j'] = .
+  7.         }
+  8.         else {
+  9.             qui corr `x' `y' if !missing(`x', `y')
+ 10.             matrix R = r(C)
+ 11.             scalar rho = R[1,2]
+ 12. 
+.             qui count if !missing(`x', `y')
+ 13.             scalar n = r(N)
+ 14. 
+.             scalar p = .
+ 15.             if n > 2 & abs(rho) < 1 {
+ 16.                 scalar tval = rho * sqrt((n - 2) / (1 - rho^2))
+ 17.                 scalar p = 2 * ttail(n - 2, abs(tval))
+ 18.             }
+ 19. 
+.             matrix C[`i', `j'] = rho
+ 20.             matrix P[`i', `j'] = p
+ 21.         }
+ 22.         local ++j
+ 23.     }
+ 24.     local ++i
+ 25. }
+
+. 
+. matrix rownames C = `corrvars'
+
+. matrix colnames C = `corrvars'
+
+. matrix rownames P = `corrvars'
+
+. matrix colnames P = `corrvars'
+
+. 
+. matrix list C
+
+symmetric C[7,7]
+               lev         npr        size        tang      growth        ndts         soe
+   lev           1
+   npr  -.35890881           1
+  size   .48126315   .01658129           1
+  tang   .05280217  -.05030591   .07861556           1
+growth   .00852234   .20010807   .04776943  -.10111465           1
+  ndts   .01745681  -.11077539   .01669621   .69509863  -.15385504           1
+   soe   .27377761  -.07263876   .36681421   .16398066  -.08632058    .0732023           1
+
+. matrix list P
+
+symmetric P[7,7]
+              lev        npr       size       tang     growth       ndts        soe
+   lev          .
+   npr          0          .
+  size          0  .00453428          .
+  tang  1.506e-19  6.920e-18  2.127e-41          .
+growth  .14462618  2.31e-262  2.809e-16  1.902e-67          .
+  ndts  .00280556  1.170e-80  .00426244          0  1.17e-154          .
+   soe          0  1.400e-35          0  1.08e-175  1.402e-49  4.143e-36          .
+
+. 
+. * 导出数值型矩阵
+. preserve
+
+. clear
+
+. set obs `K'
+Number of observations (_N) was 0, now 7.
+
+. gen str12 rowvar = ""
+(7 missing values generated)
+
+. forvalues i = 1/`K' {
+  2.     local rowname : word `i' of `corrvars'
+  3.     replace rowvar = "`rowname'" in `i'
+  4. }
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+
+. 
+. local j = 1
+
+. foreach col of local corrvars {
+  2.     gen `col' = .
+  3.     forvalues i = 1/`K' {
+  4.         replace `col' = C[`i', `j'] in `i'
+  5.     }
+  6.     local ++j
+  7. }
+(7 missing values generated)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(7 missing values generated)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(7 missing values generated)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(7 missing values generated)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(7 missing values generated)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(7 missing values generated)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(7 missing values generated)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+
+. save "$tab\corr_matrix_numeric.dta", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\corr_matrix_numeric.dta not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\corr_matrix_numeric.dta saved
+
+. export excel using "$tab\corr_matrix_numeric.xlsx", firstrow(variables) replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\corr_matrix_numeric.xlsx saved
+
+. export delimited using "$tab\corr_matrix_numeric.csv", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\corr_matrix_numeric.csv not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\corr_matrix_numeric.csv saved
+
+. restore
+
+. 
+. * 导出带显著性星号的字符串型矩阵
+. preserve
+
+. clear
+
+. set obs `K'
+Number of observations (_N) was 0, now 7.
+
+. gen str12 rowvar = ""
+(7 missing values generated)
+
+. forvalues i = 1/`K' {
+  2.     local rowname : word `i' of `corrvars'
+  3.     replace rowvar = "`rowname'" in `i'
+  4. }
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+
+. 
+. local j = 1
+
+. foreach col of local corrvars {
+  2.     gen str15 `col' = ""
+  3.     forvalues i = 1/`K' {
+  4.         scalar cval = C[`i', `j']
+  5.         scalar pval = P[`i', `j']
+  6.         local stars ""
+  7.         if !missing(pval) & pval < 0.01 local stars "***"
+  8.         else if !missing(pval) & pval < 0.05 local stars "**"
+  9.         else if !missing(pval) & pval < 0.10 local stars "*"
+ 10. 
+.         if `i' == `j' {
+ 11.             replace `col' = "1.000" in `i'
+ 12.         }
+ 13.         else {
+ 14.             replace `col' = string(cval, "%9.3f") + "`stars'" in `i'
+ 15.         }
+ 16.     }
+ 17.     local ++j
+ 18. }
+(7 missing values generated)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(7 missing values generated)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(7 missing values generated)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(7 missing values generated)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(7 missing values generated)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(7 missing values generated)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(7 missing values generated)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+
+. save "$tab\corr_matrix_star.dta", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\corr_matrix_star.dta not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\corr_matrix_star.dta saved
+
+. export excel using "$tab\corr_matrix_star.xlsx", firstrow(variables) replace
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\corr_matrix_star.xlsx saved
+
+. export delimited using "$tab\corr_matrix_star.csv", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\corr_matrix_star.csv not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\corr_matrix_star.csv saved
+
+. restore
+
+. 
+. di as result ">>> 2.2 相关系数矩阵已导出"
+>>> 2.2 相关系数矩阵已导出
+
+. 
+. * 可选：热力图（若 heatplot 可用）
+. capture which heatplot
+
+. if _rc {
+.     cap noi ssc install heatplot, replace
+checking heatplot consistency and verifying not already installed...
+installing into C:\Users\Phyllis\ado\plus\...
+installation complete.
+. }
+
+. 
+. capture noisily {
+.     heatplot C, values(format(%4.2f)) ///
+>         title("Fig 3 Correlation Heatmap") ///
+>         name(fig3_heatmap, replace)
+-colorpalette- is required; type ssc install palettes, replace
+-colrspace- is required; type ssc install colrspace, replace
+(error occurred while loading heatplot.ado)
+r(499);
+.     graph export "$fig\Fig3_corr_heatmap.png", replace width(2200)
+. }
+
+. if _rc {
+.     di as text ">>> heatplot 未成功运行，已跳过 Fig3 热力图。"
+>>> heatplot 未成功运行，已跳过 Fig3 热力图。
+. }
+
+. 
+. *====================================================*
+. * Part 2.3 时序趋势图
+. *====================================================*
+. 
+. * 图 1：Lev 的年度均值趋势（分 SOE / Non-SOE）
+. preserve
+
+. collapse (mean) lev npr, by(year soe)
+
+. 
+. label define soelab 0 "Non-SOE" 1 "SOE", replace
+
+. label values soe soelab
+
+. 
+. twoway ///
+>     (line lev year if soe == 1, sort lwidth(medthick)) ///
+>     (line lev year if soe == 0, sort lpattern(dash) lwidth(medthick)), ///
+>     title("Fig 1 Mean Lev by Year and Ownership") ///
+>     xtitle("Year") ytitle("Mean Lev") ///
+>     legend(order(1 "SOE" 2 "Non-SOE")) ///
+>     name(fig1_lev_trend, replace)
+
+. graph export "$fig\Fig1_mean_lev_by_soe.png", replace width(2200)
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\figures\Fig1_mean_lev_by_soe.png not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\figures\Fig1_mean_lev_by_soe.png saved as PNG format
+
+. 
+. * 图 2：NPR 的年度均值趋势（分 SOE / Non-SOE）
+. twoway ///
+>     (line npr year if soe == 1, sort lwidth(medthick)) ///
+>     (line npr year if soe == 0, sort lpattern(dash) lwidth(medthick)), ///
+>     title("Fig 2 Mean NPR by Year and Ownership") ///
+>     xtitle("Year") ytitle("Mean NPR") ///
+>     legend(order(1 "SOE" 2 "Non-SOE")) ///
+>     name(fig2_npr_trend, replace)
+
+. graph export "$fig\Fig2_mean_npr_by_soe.png", replace width(2200)
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\figures\Fig2_mean_npr_by_soe.png not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\figures\Fig2_mean_npr_by_soe.png saved as PNG format
+
+. restore
+
+. 
+. * 图 3：Lev 分布的分年度箱型图
+. graph box lev, over(year, label(angle(45))) ///
+>     title("Fig 3 Yearly Boxplot of Lev") ///
+>     ytitle("Lev") ///
+>     name(fig3_lev_box, replace)
+
+. graph export "$fig\Fig3_yearly_box_lev.png", replace width(2200)
+(file D:\Microsoft VS Code\exP03_冯晓怡\output\figures\Fig3_yearly_box_lev.png not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\figures\Fig3_yearly_box_lev.png saved as PNG format
+
+. 
+. di as result ">>> 2.3 趋势图已导出"
+>>> 2.3 趋势图已导出
+
+. 
+. *====================================================*
+. * 3. 简短提示输出
+. *====================================================*
+. di as text "--------------------------------------------------"
+--------------------------------------------------
+
+. di as text "描述统计阶段建议你重点写三点："
+描述统计阶段建议你重点写三点：
+
+. di as text "1) NPR 与 Lev 的相关系数方向是否为负；"
+1) NPR 与 Lev 的相关系数方向是否为负；
+
+. di as text "2) Size 与 NPR 的相关系数是否接近 0 / 为正；"
+2) Size 与 NPR 的相关系数是否接近 0 / 为正；
+
+. di as text "3) 连续变量中是否存在 |corr| > 0.7 的严重多重共线性。"
+3) 连续变量中是否存在 |corr| > 0.7 的严重多重共线性。
+
+. di as text "--------------------------------------------------"
+--------------------------------------------------
+
+. 
+. log close
+      name:  <unnamed>
+       log:  D:\Microsoft VS Code\exP03_冯晓怡\output\logs\02_descriptive_stats.log
+  log type:  text
+ closed on:  21 Apr 2026, 20:30:48
+-------------------------------------------------------------------------------------------------------------------------------------------------

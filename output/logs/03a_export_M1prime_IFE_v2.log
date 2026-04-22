@@ -1,0 +1,245 @@
+-------------------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  D:\Microsoft VS Code\exP03_冯晓怡\output\logs\03a_export_M1prime_IFE_v2.log
+  log type:  text
+ opened on:  22 Apr 2026, 13:21:39
+
+. 
+. *----------------------------*
+. * 1. 命令检查与安装
+. *----------------------------*
+. cap which ftools
+
+. if _rc cap noi ssc install ftools, replace
+
+. 
+. cap which reghdfe
+
+. if _rc cap noi ssc install reghdfe, replace
+
+. 
+. cap which esttab
+
+. if _rc cap noi ssc install estout, replace
+
+. 
+. cap which regife
+
+. if _rc cap noi ssc install regife, replace
+
+. cap which regife
+
+. if _rc cap noi net install regife, from("https://raw.githubusercontent.com/matthieugomez/regife/main/") replace
+
+. 
+. cap which reghdfe
+
+. if _rc {
+.     di as error "reghdfe 未安装成功，脚本终止。"
+.     exit 499
+. }
+
+. 
+. cap which regife
+
+. if _rc {
+.     di as error "regife 未安装成功，脚本终止。"
+.     exit 499
+. }
+
+. 
+. cap which esttab
+
+. if _rc {
+.     di as error "esttab/estout 未安装成功，脚本终止。"
+.     exit 499
+. }
+
+. 
+. *----------------------------*
+. * 2. 读入样本并检查
+. *----------------------------*
+. use "$clean\panel_clean_for_analysis.dta", clear
+
+. 
+. foreach v in firmid year lev npr m2_growth size tang growth ndts {
+  2.     capture confirm variable `v'
+  3.     if _rc {
+  4.         di as error "缺少变量：`v'"
+  5.         exit 111
+  6.     }
+  7. }
+
+. 
+. drop if missing(firmid, year, lev, npr, m2_growth, size, tang, growth, ndts)
+(0 observations deleted)
+
+. sort firmid year
+
+. compress
+  (0 bytes saved)
+
+. xtset firmid year
+
+Panel variable: firmid (unbalanced)
+ Time variable: year, 2011 to 2022, but with gaps
+         Delta: 1 unit
+
+. 
+. egen __tagfirm = tag(firmid)
+
+. qui count if __tagfirm
+
+. local nfirm = r(N)
+
+. drop __tagfirm
+
+. qui count
+
+. local nobs = r(N)
+
+. 
+. di as result ">>> sample loaded"
+>>> sample loaded
+
+. di as result "Obs   = `nobs'"
+Obs   = 29301
+
+. di as result "Firms = `nfirm'"
+Firms = 3998
+
+. 
+. cap estimates clear
+
+. 
+. *----------------------------*
+. * 3. M1：TWFE 基准模型（原作业主规格）
+. *----------------------------*
+. di as text ">>> Running M1: TWFE"
+>>> Running M1: TWFE
+
+. qui reghdfe lev npr size tang growth ndts, ///
+>     absorb(firmid year) ///
+>     vce(cluster firmid year)
+
+. 
+. estimates store M1
+
+. estadd scalar Firms = `nfirm'
+
+added scalar:
+              e(Firms) =  3998
+
+. estadd scalar R2_within = e(r2_within)
+
+added scalar:
+          e(R2_within) =  .1879516
+
+. 
+. *----------------------------*
+. * 4. 构造 IFE 起始值：先跑含 m2_growth 的 TWFE
+. *----------------------------*
+. di as text ">>> Building starting values for IFE"
+>>> Building starting values for IFE
+
+. qui reghdfe lev npr m2_growth size tang growth ndts, ///
+>     absorb(firmid year)
+
+. 
+. matrix bstart = e(b)
+
+. 
+. *----------------------------*
+. * 5. M1'：IFE 模型
+. *    说明：regife 官方文档明确指出该命令较慢，
+. *    并建议用 bstart / tolerance / maxiterations 加速。
+. *----------------------------*
+. local ife_dim = 2
+
+. local ife_note "2-factor"
+
+. 
+. capture drop ife_id1 ife_id2 ife_year1 ife_year2
+
+. capture drop ife_resid
+
+. 
+. di as text ">>> Running M1': IFE with regife (2-factor attempt)"
+>>> Running M1': IFE with regife (2-factor attempt)
+
+. di as text ">>> This step may take several minutes; no immediate screen output is normal."
+>>> This step may take several minutes; no immediate screen output is normal.
+
+. 
+. timer clear 11
+
+. timer on 11
+
+. capture noisily regife lev npr m2_growth size tang growth ndts, ///
+>     ife(ife_id=firmid ife_year=year, 2) ///
+>     absorb(firmid year) ///
+>     vce(cluster firmid) ///
+>     bstart(bstart) tolerance(1e-6) maxiterations(300)
+                       *:  3200  conformability error
+         iteration_svd():     -  function returned error
+                 <istmt>:     -  function returned error
+
+. local rc_ife = _rc
+
+. timer off 11
+
+. timer list 11
+  11:      0.47 /        1 =       0.4660
+
+. 
+. if `rc_ife' {
+.     di as error ">>> 2-factor IFE failed with rc = `rc_ife'."
+>>> 2-factor IFE failed with rc = 3200.
+.     di as error ">>> Retrying with 1-factor IFE fallback."
+>>> Retrying with 1-factor IFE fallback.
+.     capture drop ife_id1 ife_id2 ife_year1 ife_year2
+.     capture drop ife_resid
+. 
+.     local ife_dim = 1
+.     local ife_note "1-factor fallback"
+. 
+.     timer clear 12
+.     timer on 12
+.     capture noisily regife lev npr m2_growth size tang growth ndts, ///
+>         ife(ife_id=firmid ife_year=year, 1) ///
+>         absorb(firmid year) ///
+>         vce(cluster firmid) ///
+>         bstart(bstart) tolerance(1e-6) maxiterations(300)
+                       *:  3200  conformability error
+         iteration_svd():     -  function returned error
+                 <istmt>:     -  function returned error
+.     local rc_ife = _rc
+.     timer off 12
+.     timer list 12
+  12:      0.40 /        1 =       0.4000
+. }
+
+. 
+. if `rc_ife' {
+.     di as error "M1'（IFE）仍未成功运行，脚本终止。"
+M1'（IFE）仍未成功运行，脚本终止。
+.     di as error "请查看：$log\03a_export_M1prime_IFE_v2.log"
+请查看：D:\Microsoft VS Code\exP03_冯晓怡\output\logs\03a_export_M1prime_IFE_v2.log
+.     exit `rc_ife'
+r(3200);
+. }
+r(3200);
+
+end of do-file
+
+r(3200);
+
+. do "D:\Microsoft VS Code\exP03_冯晓怡\03a_export_M1prime_IFE_v3.do"
+
+. clear all
+
+. set more off
+
+. set linesize 255
+
+. capture log close _all

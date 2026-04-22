@@ -1,0 +1,403 @@
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  D:\Microsoft VS Code\exP03_冯晓怡\output\logs\03a_export_M1prime_IFE_v3.log
+  log type:  text
+ opened on:  22 Apr 2026, 13:32:01
+
+. 
+. di as text "============================================================"
+============================================================
+
+. di as text "M1' (IFE) export script v3 started"
+M1' (IFE) export script v3 started
+
+. di as text c(current_date) " " c(current_time)
+22 Apr 2026 13:32:01
+
+. di as text "============================================================"
+============================================================
+
+. 
+. * ---------- 1. 命令检查 ----------
+. cap which ftools
+
+. if _rc cap noi ssc install ftools, replace
+
+. 
+. cap which reghdfe
+
+. if _rc cap noi ssc install reghdfe, replace
+
+. 
+. cap which esttab
+
+. if _rc cap noi ssc install estout, replace
+
+. 
+. cap which regife
+
+. if _rc cap noi ssc install regife, replace
+
+. cap which regife
+
+. if _rc cap noi net install regife, from("https://raw.githubusercontent.com/matthieugomez/regife/main/") replace
+
+. 
+. cap which reghdfe
+
+. if _rc {
+.     di as error "reghdfe 未安装成功，脚本终止。"
+.     exit 499
+. }
+
+. cap which regife
+
+. if _rc {
+.     di as error "regife 未安装成功，脚本终止。"
+.     exit 499
+. }
+
+. cap which esttab
+
+. if _rc {
+.     di as error "esttab/estout 未安装成功，脚本终止。"
+.     exit 499
+. }
+
+. 
+. * ---------- 2. 读取数据 ----------
+. use "$clean\panel_clean_for_analysis.dta", clear
+
+. 
+. foreach v in firmid year lev npr m2_growth size tang growth ndts {
+  2.     capture confirm variable `v'
+  3.     if _rc {
+  4.         di as error "缺少变量：`v'"
+  5.         exit 111
+  6.     }
+  7. }
+
+. 
+. drop if missing(firmid, year, lev, npr, m2_growth, size, tang, growth, ndts)
+(0 observations deleted)
+
+. xtset firmid year
+
+Panel variable: firmid (unbalanced)
+ Time variable: year, 2011 to 2022, but with gaps
+         Delta: 1 unit
+
+. 
+. qui count
+
+. local N = r(N)
+
+. egen __tagfirm = tag(firmid)
+
+. qui count if __tagfirm
+
+. local Firms = r(N)
+
+. drop __tagfirm
+
+. 
+. * 检查 m2_growth 是否纯时间序列变量
+. bys year: egen __m2min = min(m2_growth)
+
+. bys year: egen __m2max = max(m2_growth)
+
+. qui count if __m2min != __m2max
+
+. local badm2 = r(N)
+
+. drop __m2min __m2max
+
+. 
+. if `badm2' == 0 {
+.     di as result ">>> m2_growth 确认为纯时间序列变量（同一年对所有公司相同）"
+>>> m2_growth 确认为纯时间序列变量（同一年对所有公司相同）
+. }
+
+. else {
+.     di as error ">>> 警告：m2_growth 在同一年内并不完全相同，请检查原始宏观数据。"
+. }
+
+. 
+. di as result ">>> sample loaded"
+>>> sample loaded
+
+. di as result "Obs   = `N'"
+Obs   = 29301
+
+. di as result "Firms = `Firms'"
+Firms = 3998
+
+. 
+. capture estimates clear
+
+. 
+. * ---------- 3. M1：TWFE 基准模型 ----------
+. di as text ">>> Running M1: TWFE"
+>>> Running M1: TWFE
+
+. qui reghdfe lev npr size tang growth ndts, absorb(firmid year) vce(cluster firmid year)
+
+. estimates store M1
+
+. estadd scalar Firms = `Firms'
+
+added scalar:
+              e(Firms) =  3998
+
+. estadd scalar R2_within = e(r2_within)
+
+added scalar:
+          e(R2_within) =  .1879516
+
+. estadd local ModelType "TWFE"
+
+added macro:
+          e(ModelType) : "TWFE"
+
+. 
+. * ---------- 4. M1'：IFE 正确规格 ----------
+. * 按作业要求：公司FE + IFE + m2_growth；不再单独加入 year FE
+. * 聚类标准误处写的是 Robust，因此这里采用 vce(robust)
+. 
+. di as text ">>> Running M1': IFE (firm FE + IFE + m2_growth; no separate year FE)"
+>>> Running M1': IFE (firm FE + IFE + m2_growth; no separate year FE)
+
+. 
+. capture drop ife_id1 ife_id2 ife_year1 ife_year2 ife_resid
+
+. 
+. * 为 regife 提供更接近的起点：公司FE + m2_growth 的普通 HDFE 回归
+. qui reghdfe lev npr m2_growth size tang growth ndts, absorb(firmid) vce(robust)
+
+. matrix bstart = e(b)
+
+. 
+. local rc_ifep = .
+
+. local ife_dim = .
+
+. local ife_note ""
+
+. 
+. * 先试 1-factor：最稳、最接近“先跑通”目标
+. capture noisily regife lev npr m2_growth size tang growth ndts, ///
+>     ife(ife_id=firmid ife_year=year, 1) ///
+>     absorb(firmid) ///
+>     vce(robust) ///
+>     bstart(bstart) tolerance(1e-6) maxiterations(500)
+                       *:  3200  conformability error
+         iteration_svd():     -  function returned error
+                 <istmt>:     -  function returned error
+
+. local rc_ifep = _rc
+
+. 
+. if `rc_ifep' {
+.     di as error ">>> 1-factor + bstart 失败，改试 1-factor 无 bstart。"
+>>> 1-factor + bstart 失败，改试 1-factor 无 bstart。
+.     capture noisily regife lev npr m2_growth size tang growth ndts, ///
+>         ife(ife_id=firmid ife_year=year, 1) ///
+>         absorb(firmid) ///
+>         vce(robust) ///
+>         tolerance(1e-6) maxiterations(500)
+
+REGIFE                                            Number of obs   =      28825
+Panel structure: firmid, year                     F(   6,  21763) =     182.63
+Factor dimension: 1                               Prob > F        =     0.0000
+Converged: true                                   Root MSE        =     0.0676
+                                                  Iterations      =         51
+------------------------------------------------------------------------------
+         lev | Coefficient  Std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         npr |  -.4580934   .0173967   -26.33   0.000    -.4921921   -.4239946
+   m2_growth |   .0009069    .000308     2.95   0.003     .0003033    .0015105
+        size |   .0822898   .0042737    19.25   0.000      .073913    .0906667
+        tang |   .0972701   .0140735     6.91   0.000     .0696849    .1248552
+      growth |   .0051712   .0029034     1.78   0.075    -.0005197    .0108622
+        ndts |   .2004473   .1383113     1.45   0.147     -.070653    .4715477
+       _cons |  -1.425348    .096904   -14.71   0.000    -1.615287   -1.235409
+------------------------------------------------------------------------------
+.     local rc_ifep = _rc
+. }
+
+. 
+. if `rc_ifep' {
+.     di as error ">>> 1-factor 仍失败，改试 2-factor。"
+.     capture drop ife_id1 ife_year1
+.     capture noisily regife lev npr m2_growth size tang growth ndts, ///
+>         ife(ife_id=firmid ife_year=year, 2) ///
+>         absorb(firmid) ///
+>         vce(robust) ///
+>         tolerance(1e-6) maxiterations(500)
+.     local rc_ifep = _rc
+.     if !`rc_ifep' local ife_dim = 2
+. }
+
+. else {
+.     local ife_dim = 1
+. }
+
+. 
+. if `rc_ifep' {
+.     di as error "M1' (IFE) 直接估计仍未成功；脚本将转入 3-step IFE fallback。"
+. 
+.     * --------------------------------------------------------
+.     * 4B. 3-step IFE fallback
+.     * Step 1: 用 ife 从因变量中提取 1 个因子与载荷（公司FE）
+.     * Step 2: 在 second-stage 中把因子交互项作为控制变量加入
+.     * 说明：这是 regife README 明确允许的 3-step 用法
+.     * --------------------------------------------------------
+. 
+.     capture drop fei1 fey1 ife_resid
+.     capture noisily ife lev, factors(fei=firmid fey=year, 1) absorb(firmid) residuals(ife_resid)
+.     local rc_ife = _rc
+.     if `rc_ife' {
+.         di as error "3-step IFE fallback 也失败，脚本终止。"
+.         exit `rc_ife'
+.     }
+. 
+.     * 将 IFE 因子和载荷的交互项作为控制变量
+.     * firm side: i.firmid#c.fey1
+.     * time side: i.year#c.fei1
+.     quietly reghdfe lev npr m2_growth size tang growth ndts ///
+>         i.firmid#c.fey1 i.year#c.fei1, ///
+>         absorb(firmid) vce(robust)
+.     estimates store M1prime_IFE
+.     estadd scalar Firms = `Firms'
+.     estadd scalar R2_within = e(r2_within)
+.     estadd local ModelType "IFE-3step-fallback"
+.     local ife_dim = 1
+.     local ife_note "3-step IFE fallback (firm FE + extracted factor)"
+. }
+
+. else {
+.     estimates store M1prime_IFE
+.     capture confirm scalar e(r2_within)
+.     if _rc estadd scalar R2_within = .
+
+added scalar:
+          e(R2_within) =  .
+.     else   estadd scalar R2_within = e(r2_within)
+.     estadd scalar Firms = `Firms'
+
+added scalar:
+              e(Firms) =  3998
+.     estadd local ModelType "regife"
+
+added macro:
+          e(ModelType) : "regife"
+.     local ife_note "direct regife"
+. }
+
+. 
+. * ---------- 5. 导出并列表 ----------
+. * keep() 中使用基础变量名，不使用 c.npr 之类，避免 coefficient not found
+. capture noisily esttab M1 M1prime_IFE using "$tab\table_M1prime_IFE.rtf", replace ///
+>     se star(* 0.10 ** 0.05 *** 0.01) ///
+>     stats(N Firms R2_within, fmt(%12.0fc %12.0fc %9.4f) ///
+>           labels("Obs." "Firms" "Within R2")) ///
+>     title("exP03 Regression Results: M1 vs M1' (IFE)") ///
+>     mtitles("M1 TWFE" "M1' IFE") ///
+>     keep(npr m2_growth size tang growth ndts) ///
+>     order(npr m2_growth size tang growth ndts) ///
+>     addnotes("M1': absorb(firmid) + ife(firmid year, d); no separate year FE.", ///
+>              "Why: m2_growth is a pure time-series variable and is collinear with year FE.", ///
+>              "IFE estimation mode: `ife_note'; factor dimension used = `ife_dim'.")
+(output written to D:\Microsoft VS Code\exP03_冯晓怡\output\tables\table_M1prime_IFE.rtf)
+
+. 
+. * ---------- 6. 导出关键系数到 Excel ----------
+. putexcel set "$tab\M1prime_ife_key_results.xlsx", replace
+Note: File will be replaced when the first putexcel command is issued.
+
+. putexcel A1 = "Model" B1 = "Variable" C1 = "Coef" D1 = "SE" E1 = "t_or_z" F1 = "pvalue" G1 = "Sig"
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+
+. 
+. local row = 2
+
+. foreach mdl in M1 M1prime_IFE {
+  2.     estimates restore `mdl'
+  3.     matrix b = e(b)
+  4.     matrix V = e(V)
+  5.     local cn : colfullnames b
+  6. 
+.     foreach x in npr m2_growth size tang growth ndts {
+  7.         local pos = colnumb(b, "`x'")
+  8.         if !missing(`pos') {
+  9.             scalar __coef = b[1,`pos']
+ 10.             scalar __se   = sqrt(V[`pos',`pos'])
+ 11.             scalar __t    = __coef/__se
+ 12.             scalar __p    = 2*normal(-abs(__t))
+ 13.             local sig = cond(__p<0.01,"***", cond(__p<0.05,"**", cond(__p<0.10,"*","")))
+ 14.             putexcel A`row' = "`mdl'" B`row' = "`x'" C`row' = (__coef) D`row' = (__se) E`row' = (__t) F`row' = (__p) G`row' = "`sig'"
+ 15.             local ++row
+ 16.         }
+ 17.     }
+ 18. }
+(results M1 are active now)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+(results M1prime_IFE are active now)
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+
+. 
+. * 元信息
+. local row = `row' + 1
+
+. putexcel A`row' = "meta" B`row' = "IFE_note" C`row' = "`ife_note'"
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+
+. local ++row
+
+. putexcel A`row' = "meta" B`row' = "IFE_dim" C`row' = (`ife_dim')
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+
+. local ++row
+
+. putexcel A`row' = "meta" B`row' = "Spec" C`row' = "M1' uses firm FE + IFE + m2_growth; no separate year FE"
+file D:\Microsoft VS Code\exP03_冯晓怡\output\tables\M1prime_ife_key_results.xlsx saved
+
+. 
+. * ---------- 7. 屏幕提示 ----------
+. di as result "============================================================"
+============================================================
+
+. di as result "已生成："
+已生成：
+
+. di as result "1) $tab\\table_M1prime_IFE.rtf"
+1) D:\Microsoft VS Code\exP03_冯晓怡\output\tables\\table_M1prime_IFE.rtf
+
+. di as result "2) $tab\\M1prime_ife_key_results.xlsx"
+2) D:\Microsoft VS Code\exP03_冯晓怡\output\tables\\M1prime_ife_key_results.xlsx
+
+. di as result "IFE mode = `ife_note'"
+IFE mode = direct regife
+
+. di as result "Factor dimension used = `ife_dim'"
+Factor dimension used = 1
+
+. di as result "============================================================"
+============================================================
+
+. 
+. log close
+      name:  <unnamed>
+       log:  D:\Microsoft VS Code\exP03_冯晓怡\output\logs\03a_export_M1prime_IFE_v3.log
+  log type:  text
+ closed on:  22 Apr 2026, 13:32:07
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------

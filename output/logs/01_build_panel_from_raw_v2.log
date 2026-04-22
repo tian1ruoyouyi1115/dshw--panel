@@ -1,0 +1,382 @@
+-------------------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  D:\Microsoft VS Code\exP03_冯晓怡\output\logs\01_build_panel_from_raw_v2.log
+  log type:  text
+ opened on:  21 Apr 2026, 19:14:01
+
+. 
+. display as text ">>> Step 0 finished: folders are ready."
+>>> Step 0 finished: folders are ready.
+
+. 
+. * 自动识别新版行业文件
+. local industryfile "industry.csv"
+
+. capture confirm file "$raw\industry(2).csv"
+
+. if !_rc local industryfile "industry(2).csv"
+
+. display as result "Industry source file = `industryfile'"
+Industry source file = industry.csv
+
+. 
+. *----------------------------*
+. * 1. 资产负债表：保留 A 类年报 12/31
+. *----------------------------*
+. clear
+
+. import delimited using "$raw\balance_sheet.csv", ///
+>     clear encoding(GB18030) varnames(nonames) rowrange(2:) colrange(1:9) ///
+>     bindquotes(strict) maxquotedrows(unlimited)
+(9 vars, 546,661 obs)
+
+. 
+. rename (v1 v2 v3 v4 v5 v6 v7 v8 v9) ///
+>        (stkcd stkname enddate report_type bond_inv fa_net total_assets total_liab total_equity)
+
+. 
+. gen statadate = daily(enddate, "YMD")
+
+. format statadate %td
+
+. gen year = year(statadate)
+
+. 
+. keep if inrange(year, 2010, 2025)
+(0 observations deleted)
+
+. keep if month(statadate)==12 & day(statadate)==31
+(429,513 observations deleted)
+
+. keep if report_type=="A"
+(57,976 observations deleted)
+
+. 
+. * 剔除 B 股（简称末尾为 B）
+. drop if regexm(stkname, "B$")
+(902 observations deleted)
+
+. 
+. keep stkcd stkname year total_assets total_liab total_equity fa_net
+
+. duplicates report stkcd year
+
+Duplicates in terms of stkcd year
+
+--------------------------------------
+   Copies | Observations       Surplus
+----------+---------------------------
+        1 |        58270             0
+--------------------------------------
+
+. isid stkcd year
+
+. 
+. compress
+  variable year was float now int
+  (116,540 bytes saved)
+
+. save "$temp\balance_annual.dta", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\balance_annual.dta not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\balance_annual.dta saved
+
+. display as result "balance_annual.dta saved."
+balance_annual.dta saved.
+
+. 
+. *----------------------------*
+. * 2. 利润表：保留 A 类年报 12/31
+. *----------------------------*
+. clear
+
+. import delimited using "$raw\income_stmt.csv", ///
+>     clear encoding(GB18030) varnames(nonames) rowrange(2:) colrange(1:6) ///
+>     bindquotes(strict) maxquotedrows(unlimited)
+(6 vars, 546,633 obs)
+
+. 
+. rename (v1 v2 v3 v4 v5 v6) ///
+>        (stkcd stkname enddate report_type profit_total net_profit)
+
+. 
+. gen statadate = daily(enddate, "YMD")
+
+. format statadate %td
+
+. gen year = year(statadate)
+
+. 
+. keep if inrange(year, 2010, 2025)
+(0 observations deleted)
+
+. keep if month(statadate)==12 & day(statadate)==31
+(429,488 observations deleted)
+
+. keep if report_type=="A"
+(57,971 observations deleted)
+
+. 
+. drop if regexm(stkname, "B$")
+(902 observations deleted)
+
+. 
+. keep stkcd year net_profit
+
+. duplicates report stkcd year
+
+Duplicates in terms of stkcd year
+
+--------------------------------------
+   Copies | Observations       Surplus
+----------+---------------------------
+        1 |        58272             0
+--------------------------------------
+
+. isid stkcd year
+
+. 
+. compress
+  variable year was float now int
+  (116,544 bytes saved)
+
+. save "$temp\income_annual.dta", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\income_annual.dta not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\income_annual.dta saved
+
+. display as result "income_annual.dta saved."
+income_annual.dta saved.
+
+. 
+. *----------------------------*
+. * 3. 现金流量表：构造 NDTS 分子
+. *----------------------------*
+. clear
+
+. import delimited using "$raw\cashflow.csv", ///
+>     clear encoding(GB18030) varnames(nonames) rowrange(2:) colrange(1:9) ///
+>     bindquotes(strict) maxquotedrows(unlimited)
+(9 vars, 226,784 obs)
+
+. 
+. rename (v1 v2 v3 v4 v5 v6 v7 v8 v9) ///
+>        (stkcd stkname enddate report_type dep_fa dep_invest dep_rou amort_intang amort_lte)
+
+. 
+. gen statadate = daily(enddate, "YMD")
+
+. format statadate %td
+
+. gen year = year(statadate)
+
+. 
+. keep if inrange(year, 2010, 2025)
+(0 observations deleted)
+
+. keep if month(statadate)==12 & day(statadate)==31
+(155,569 observations deleted)
+
+. keep if report_type=="A"
+(12,091 observations deleted)
+
+. 
+. drop if regexm(stkname, "B$")
+(902 observations deleted)
+
+. 
+. foreach v in dep_fa dep_invest dep_rou amort_intang amort_lte {
+  2.     replace `v' = 0 if missing(`v')
+  3. }
+(74 real changes made)
+(57,301 real changes made)
+(38,160 real changes made)
+(535 real changes made)
+(5,287 real changes made)
+
+. 
+. egen ndts_num = rowtotal(dep_fa dep_invest dep_rou amort_intang amort_lte)
+
+. keep stkcd year ndts_num
+
+. duplicates report stkcd year
+
+Duplicates in terms of stkcd year
+
+--------------------------------------
+   Copies | Observations       Surplus
+----------+---------------------------
+        1 |        58222             0
+--------------------------------------
+
+. isid stkcd year
+
+. 
+. compress
+  variable year was float now int
+  (116,444 bytes saved)
+
+. save "$temp\cashflow_annual.dta", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\cashflow_annual.dta not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\cashflow_annual.dta saved
+
+. display as result "cashflow_annual.dta saved."
+cashflow_annual.dta saved.
+
+. 
+. *----------------------------*
+. * 4. 股权性质：构造 SOE
+. *----------------------------*
+. clear
+
+. import delimited using "$raw\ownership.csv", ///
+>     clear encoding(GB18030) varnames(nonames) rowrange(2:) colrange(1:6) ///
+>     bindquotes(strict) maxquotedrows(unlimited)
+(6 vars, 55,716 obs)
+
+. 
+. rename (v1 v2 v3 v4 v5 v6) ///
+>        (stkcd stkname enddate ctrltype_code ownership_type ownership_code)
+
+. 
+. gen statadate = daily(enddate, "YMD")
+
+. format statadate %td
+
+. gen year = year(statadate)
+
+. 
+. keep if inrange(year, 2010, 2025)
+(0 observations deleted)
+
+. drop if regexm(stkname, "B$")
+(182 observations deleted)
+
+. 
+. gen soe = .
+(55,534 missing values generated)
+
+. replace soe = 1 if strpos(ownership_type, "国企")>0
+(17,911 real changes made)
+
+. replace soe = 0 if missing(soe) & ownership_type!=""
+(36,022 real changes made)
+
+. label define SOE 0 "Non-SOE" 1 "SOE"
+
+. label values soe SOE
+
+. 
+. keep stkcd year soe ownership_type
+
+. duplicates report stkcd year
+
+Duplicates in terms of stkcd year
+
+--------------------------------------
+   Copies | Observations       Surplus
+----------+---------------------------
+        1 |        55534             0
+--------------------------------------
+
+. isid stkcd year
+
+. 
+. compress
+  variable year was float now int
+  variable soe was float now byte
+  (277,670 bytes saved)
+
+. save "$temp\ownership_year.dta", replace
+(file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\ownership_year.dta not found)
+file D:\Microsoft VS Code\exP03_冯晓怡\data\temp\ownership_year.dta saved
+
+. display as result "ownership_year.dta saved."
+ownership_year.dta saved.
+
+. 
+. *----------------------------*
+. * 5. 行业分类：使用新版行业表
+. *    制造业 -> 二级行业代码
+. *    非制造业 -> 一级行业代码
+. *----------------------------*
+. clear
+
+. import delimited using "$raw\`industryfile'", ///
+>     clear encoding(GB18030) varnames(nonames) rowrange(2:) colrange(1:13) ///
+>     bindquotes(strict) maxquotedrows(unlimited)
+file D:\Microsoft VS Code\exP03_冯晓怡\data\第一次处理`industryfile'.csv not found
+r(601);
+
+end of do-file
+
+r(601);
+
+. clear
+
+. do "D:\Microsoft VS Code\exP03_冯晓怡\01_build_panel_from_raw_v3.do"
+
+. *******************************************************
+. * File: 01_build_panel_from_raw_v3.do
+. * Purpose:
+. *   将 7 张 CSMAR 原始 CSV 清洗为 2010-2025 年年度面板，
+. *   生成可直接进入 exP03 后续分析的 Stata 数据
+. *
+. * User path assumptions:
+. *   root = D:\Microsoft VS Code\exP03_冯晓怡
+. *   raw  = D:\Microsoft VS Code\exP03_冯晓怡\data\第一次处理
+. *
+. * IMPORTANT:
+. *   1) 只做作业必做部分；控制变量（选做）、xtplfc（可选）、
+. *      Quarto Book（选做加分）这三部分不做。
+. *   2) 当前新版行业表已包含“二级行业代码/名称”，因此本脚本正式采用：
+. *      - 制造业：使用二级行业代码（如 C27、C39）
+. *      - 非制造业：使用一级行业代码（如 D、E、F、J）
+. *   3) 行业表中 2010-2011 年金融保险业代码常见为 I，
+. *      2012 年后金融业代码常见为 J，因此筛金融时需要同时剔除 I 和 J。
+. *   4) 原始财务表中混有 B 股，公司简称末尾为 B 的先剔除。
+. *   5) 若你的目录里同时存在 industry.csv 和 industry(2).csv，
+. *      本脚本会优先读取 industry(2).csv。
+. *******************************************************
+. 
+. version 17.0
+
+. clear all
+
+. set more off
+
+. macro drop _all
+
+. 
+. *----------------------------*
+. * 0. 路径设置
+. *----------------------------*
+. global root  "D:\Microsoft VS Code\exP03_冯晓怡"
+
+. global raw   "$root\data\第一次处理"
+
+. global temp  "$root\data\temp"
+
+. global clean "$root\data\clean"
+
+. global out   "$root\output"
+
+. global tab   "$out\tables"
+
+. global fig   "$out\figures"
+
+. global log   "$out\logs"
+
+. 
+. cap mkdir "$temp"
+
+. cap mkdir "$clean"
+
+. cap mkdir "$out"
+
+. cap mkdir "$tab"
+
+. cap mkdir "$fig"
+
+. cap mkdir "$log"
+
+. 
+. capture log close
